@@ -51,39 +51,31 @@ class JAXImagePreprocessor:
             logger.info("Pre-compiling JAX functions...")
             self._warmup()
     
-    @staticmethod
-    @jit
-    def _resize_image_jax(image: jnp.ndarray, target_size: Tuple[int, int]) -> jnp.ndarray:
+    def _resize_image_jax(self, image: jnp.ndarray) -> jnp.ndarray:
         """
         JIT-compiled image resize using JAX.
         
         Args:
             image: Input image array (H, W, C)
-            target_size: Target (height, width)
             
         Returns:
             Resized image array
         """
         return jax.image.resize(
             image,
-            shape=(target_size[0], target_size[1], image.shape[2]),
+            shape=(self.image_size[0], self.image_size[1], image.shape[2]),
             method='bilinear',
         )
     
-    @staticmethod
-    @jit
     def _normalize_image_jax(
+        self,
         image: jnp.ndarray,
-        mean: jnp.ndarray,
-        std: jnp.ndarray,
     ) -> jnp.ndarray:
         """
         JIT-compiled image normalization.
         
         Args:
             image: Input image array (H, W, C) in [0, 255]
-            mean: Normalization mean
-            std: Normalization std
             
         Returns:
             Normalized image array in [-1, 1] range
@@ -91,25 +83,18 @@ class JAXImagePreprocessor:
         # Convert to [0, 1]
         image = image / 255.0
         # Normalize
-        image = (image - mean) / std
+        image = (image - self.mean) / self.std
         return image
     
-    @staticmethod
-    @jit
     def _preprocess_single_jax(
+        self,
         image: jnp.ndarray,
-        target_size: Tuple[int, int],
-        mean: jnp.ndarray,
-        std: jnp.ndarray,
     ) -> jnp.ndarray:
         """
         JIT-compiled single image preprocessing pipeline.
         
         Args:
             image: Input image (H, W, C)
-            target_size: Target size
-            mean: Normalization mean
-            std: Normalization std
             
         Returns:
             Preprocessed image
@@ -117,12 +102,18 @@ class JAXImagePreprocessor:
         # Resize
         resized = jax.image.resize(
             image,
-            shape=(target_size[0], target_size[1], image.shape[2]),
+            shape=(self.image_size[0], self.image_size[1], image.shape[2]),
             method='bilinear',
         )
         # Normalize
-        normalized = (resized / 255.0 - mean) / std
+        normalized = (resized / 255.0 - self.mean) / self.std
         return normalized
+    
+    def _get_preprocess_single_jitted(self):
+        """Get or create JIT-compiled preprocessing function."""
+        if not hasattr(self, '_preprocess_jit'):
+            self._preprocess_jit = jit(self._preprocess_single_jax)
+        return self._preprocess_jit
     
     def _preprocess_batch_vmap(self) -> callable:
         """
@@ -131,26 +122,16 @@ class JAXImagePreprocessor:
         Returns:
             Vectorized preprocessing function
         """
+        # Get jitted function
+        preprocess_jit = self._get_preprocess_single_jitted()
         # Vectorize over the batch dimension
-        return vmap(
-            lambda img: self._preprocess_single_jax(
-                img,
-                self.image_size,
-                self.mean,
-                self.std,
-            ),
-            in_axes=0,
-        )
+        return vmap(preprocess_jit, in_axes=0)
     
     def _warmup(self) -> None:
         """Warmup JIT compilation with dummy data."""
         dummy_image = jnp.ones((224, 224, 3), dtype=jnp.float32)
-        _ = self._preprocess_single_jax(
-            dummy_image,
-            self.image_size,
-            self.mean,
-            self.std,
-        )
+        preprocess_jit = self._get_preprocess_single_jitted()
+        _ = preprocess_jit(dummy_image)
         
         # Warmup batch processing
         dummy_batch = jnp.ones((4, 224, 224, 3), dtype=jnp.float32)
@@ -227,13 +208,9 @@ class JAXImagePreprocessor:
         # Convert to JAX array
         jax_image = jnp.array(image, dtype=jnp.float32)
         
-        # Preprocess
-        processed = self._preprocess_single_jax(
-            jax_image,
-            self.image_size,
-            self.mean,
-            self.std,
-        )
+        # Preprocess with jitted function
+        preprocess_jit = self._get_preprocess_single_jitted()
+        processed = preprocess_jit(jax_image)
         
         # Convert back to numpy
         return np.array(processed)
