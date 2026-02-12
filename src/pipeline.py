@@ -53,6 +53,7 @@ class ImageEmbeddingPipeline:
             mean=config.preprocess.mean,
             std=config.preprocess.std,
             cache_compiled=config.cache_compiled_functions,
+            data_format=config.preprocess.data_format,
         )
         
         # Triton client

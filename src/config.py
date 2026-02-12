@@ -46,6 +46,7 @@ class PreprocessConfig:
     std: tuple = (0.229, 0.224, 0.225)
     batch_size: int = 32
     num_workers: int = 4
+    data_format: str = "NCHW"  # Output format: NCHW or NHWC
 
 
 @dataclass
@@ -145,6 +146,7 @@ class ServiceConfig:
                 'std': list(self.preprocess.std),
                 'batch_size': self.preprocess.batch_size,
                 'num_workers': self.preprocess.num_workers,
+                'data_format': self.preprocess.data_format,
             },
             'log_level': self.log_level,
             'cache_compiled_functions': self.cache_compiled_functions,

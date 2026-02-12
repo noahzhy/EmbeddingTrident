@@ -31,6 +31,7 @@ class JAXImagePreprocessor:
         mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
         cache_compiled: bool = True,
+        data_format: str = 'NHWC',
     ):
         """
         Initialize the preprocessor.
@@ -40,11 +41,17 @@ class JAXImagePreprocessor:
             mean: Normalization mean for RGB channels
             std: Normalization std for RGB channels
             cache_compiled: Whether to cache JIT-compiled functions
+            data_format: Output data format - 'NHWC' (batch, height, width, channels) 
+                        or 'NCHW' (batch, channels, height, width). Default: 'NHWC'
         """
         self.image_size = image_size
         self.mean = jnp.array(mean, dtype=jnp.float32).reshape(1, 1, 3)
         self.std = jnp.array(std, dtype=jnp.float32).reshape(1, 1, 3)
         self.cache_compiled = cache_compiled
+        self.data_format = data_format.upper()
+        
+        if self.data_format not in ['NHWC', 'NCHW']:
+            raise ValueError(f"data_format must be 'NHWC' or 'NCHW', got {data_format}")
         
         # Pre-compile functions
         if cache_compiled:
@@ -129,12 +136,13 @@ class JAXImagePreprocessor:
     
     def _warmup(self) -> None:
         """Warmup JIT compilation with dummy data."""
-        dummy_image = jnp.ones((224, 224, 3), dtype=jnp.float32)
+        # Use configured image_size instead of hardcoded values
+        dummy_image = jnp.ones((*self.image_size, 3), dtype=jnp.float32)
         preprocess_jit = self._get_preprocess_single_jitted()
         _ = preprocess_jit(dummy_image)
         
-        # Warmup batch processing
-        dummy_batch = jnp.ones((4, 224, 224, 3), dtype=jnp.float32)
+        # Warmup batch processing with small batch
+        dummy_batch = jnp.ones((4, *self.image_size, 3), dtype=jnp.float32)
         batch_fn = self._preprocess_batch_vmap()
         _ = batch_fn(dummy_batch)
         
@@ -200,7 +208,7 @@ class JAXImagePreprocessor:
             image: Image array or path/URL
             
         Returns:
-            Preprocessed image (H, W, C)
+            Preprocessed image (H, W, C) if NHWC format, or (C, H, W) if NCHW format
         """
         if isinstance(image, str):
             image = self.load_image(image)
@@ -211,6 +219,10 @@ class JAXImagePreprocessor:
         # Preprocess with jitted function
         preprocess_jit = self._get_preprocess_single_jitted()
         processed = preprocess_jit(jax_image)
+        
+        # Convert to NCHW if requested
+        if self.data_format == 'NCHW':
+            processed = jnp.transpose(processed, (2, 0, 1))  # (H, W, C) -> (C, H, W)
         
         # Convert back to numpy
         return np.array(processed)
@@ -226,7 +238,8 @@ class JAXImagePreprocessor:
             images: List of image arrays or paths/URLs
             
         Returns:
-            Batch of preprocessed images (B, H, W, C)
+            Batch of preprocessed images (B, H, W, C) if NHWC format, 
+            or (B, C, H, W) if NCHW format
         """
         # Load all images
         loaded_images = []
@@ -244,6 +257,10 @@ class JAXImagePreprocessor:
         # Vectorized preprocessing
         batch_fn = self._preprocess_batch_vmap()
         processed_batch = batch_fn(jax_batch)
+        
+        # Convert to NCHW if requested
+        if self.data_format == 'NCHW':
+            processed_batch = jnp.transpose(processed_batch, (0, 3, 1, 2))  # (B, H, W, C) -> (B, C, H, W)
         
         # Convert back to numpy
         return np.array(processed_batch)
