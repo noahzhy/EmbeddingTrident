@@ -199,6 +199,55 @@ curl -X POST http://localhost:8080/search \
   }'
 ```
 
+### Command-Line Interface
+
+Install the package:
+```bash
+pip install -e .
+```
+
+Use the CLI:
+
+**Extract embeddings**
+```bash
+jax-embedding embed /path/to/image1.jpg /path/to/image2.jpg --output embeddings.npy
+```
+
+**Insert images**
+```bash
+jax-embedding insert /path/to/image*.jpg \
+  --ids img_1 img_2 img_3 \
+  --collection my_images \
+  --create-collection
+```
+
+**Search for similar images**
+```bash
+jax-embedding search /path/to/query.jpg \
+  --topk 10 \
+  --collection my_images
+```
+
+**Manage collections**
+```bash
+# List collections
+jax-embedding collection list
+
+# Create collection
+jax-embedding collection create --name my_images --dim 512
+
+# Get stats
+jax-embedding collection stats --name my_images
+
+# Delete collection
+jax-embedding collection delete --name my_images
+```
+
+**Health check**
+```bash
+jax-embedding health
+```
+
 ## 📁 Project Structure
 
 ```
@@ -210,7 +259,8 @@ curl -X POST http://localhost:8080/search \
 │   ├── triton_client.py       # Triton Inference Server client
 │   ├── milvus_client.py       # Milvus vector database client
 │   ├── pipeline.py            # End-to-end orchestration
-│   └── api_server.py          # FastAPI REST endpoints
+│   ├── api_server.py          # FastAPI REST endpoints
+│   └── cli.py                 # Command-line interface
 ├── configs/
 │   ├── config.yaml            # Service configuration
 │   ├── triton_config.pbtxt    # Triton model config
@@ -219,6 +269,13 @@ curl -X POST http://localhost:8080/search \
 │   ├── basic_usage.py         # Basic usage examples
 │   ├── batch_processing.py    # Batch processing benchmark
 │   └── api_client.py          # API client examples
+├── tests/
+│   └── validate.py            # Validation tests
+├── docs/
+│   └── PERFORMANCE.md         # Performance optimization guide
+├── docker-compose.yml         # Docker deployment
+├── Dockerfile                 # API service container
+├── setup.py                   # Package installation
 ├── requirements.txt           # Python dependencies
 └── README.md                  # This file
 ```
@@ -406,7 +463,25 @@ Search Performance (100 queries):
 
 ## 🚀 Deployment
 
-### Docker Deployment
+### Quick Start with Docker Compose
+
+The easiest way to run the full stack:
+
+```bash
+# Start all services (Milvus, Triton, API)
+docker-compose up -d
+
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f embedding-api
+
+# Stop all services
+docker-compose down
+```
+
+### Manual Docker Deployment
 
 Create a `Dockerfile`:
 
