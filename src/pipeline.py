@@ -64,6 +64,8 @@ class ImageEmbeddingPipeline:
             timeout=config.triton.timeout,
             max_retries=config.triton.max_retries,
             retry_delay=config.triton.retry_delay,
+            input_name=config.triton.input_name,
+            output_name=config.triton.output_name,
         )
         
         # Milvus client

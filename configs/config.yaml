@@ -7,6 +7,8 @@ triton:
   timeout: 60
   max_retries: 3
   retry_delay: 1.0
+  input_name: "input"  # Input tensor name in model
+  output_name: "output"  # Output tensor name in model
 
 # Milvus Configuration
 milvus:

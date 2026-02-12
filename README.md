@@ -289,6 +289,8 @@ triton:
   url: "localhost:8000"
   model_name: "embedding_model"
   protocol: "http"
+  input_name: "input"    # Custom input tensor name
+  output_name: "output"  # Custom output tensor name
 
 milvus:
   host: "localhost"
@@ -306,12 +308,43 @@ preprocess:
 ```bash
 export TRITON_URL="localhost:8000"
 export TRITON_MODEL_NAME="embedding_model"
+export TRITON_INPUT_NAME="input"
+export TRITON_OUTPUT_NAME="output"
 export MILVUS_HOST="localhost"
 export MILVUS_PORT="19530"
 export MILVUS_EMBEDDING_DIM="512"
 ```
 
 ## 🔧 Advanced Usage
+
+### Custom Triton Input/Output Node Names
+
+If your Triton model uses custom input/output tensor names, you can specify them in the configuration:
+
+```python
+from src.config import ServiceConfig
+from src.triton_client import TritonClient
+
+# Method 1: Via configuration
+config = ServiceConfig()
+config.triton.input_name = "images"
+config.triton.output_name = "embeddings"
+
+# Method 2: Direct client instantiation
+client = TritonClient(
+    url="localhost:8000",
+    model_name="my_model",
+    input_name="custom_input",
+    output_name="custom_output"
+)
+
+# The names are used as defaults, but can be overridden per call
+embeddings = client.infer(
+    inputs,
+    input_name="different_input",  # Override for this call
+    output_name="different_output"
+)
+```
 
 ### Custom Preprocessing
 

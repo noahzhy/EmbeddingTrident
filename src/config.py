@@ -19,6 +19,8 @@ class TritonConfig:
     timeout: int = 60
     max_retries: int = 3
     retry_delay: float = 1.0
+    input_name: str = "input"  # Input tensor name in model
+    output_name: str = "output"  # Output tensor name in model
 
 
 @dataclass
@@ -90,6 +92,10 @@ class ServiceConfig:
             config.triton.model_version = os.getenv('TRITON_MODEL_VERSION')
         if os.getenv('TRITON_PROTOCOL'):
             config.triton.protocol = os.getenv('TRITON_PROTOCOL')
+        if os.getenv('TRITON_INPUT_NAME'):
+            config.triton.input_name = os.getenv('TRITON_INPUT_NAME')
+        if os.getenv('TRITON_OUTPUT_NAME'):
+            config.triton.output_name = os.getenv('TRITON_OUTPUT_NAME')
             
         # Milvus
         if os.getenv('MILVUS_HOST'):
@@ -118,6 +124,8 @@ class ServiceConfig:
                 'timeout': self.triton.timeout,
                 'max_retries': self.triton.max_retries,
                 'retry_delay': self.triton.retry_delay,
+                'input_name': self.triton.input_name,
+                'output_name': self.triton.output_name,
             },
             'milvus': {
                 'host': self.milvus.host,

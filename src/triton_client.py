@@ -41,6 +41,8 @@ class TritonClient:
         timeout: int = 60,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        input_name: str = "input",
+        output_name: str = "output",
     ):
         """
         Initialize Triton client.
@@ -53,6 +55,8 @@ class TritonClient:
             timeout: Request timeout in seconds
             max_retries: Maximum number of retries on failure
             retry_delay: Delay between retries in seconds
+            input_name: Default input tensor name in model
+            output_name: Default output tensor name in model
         """
         self.url = url
         self.model_name = model_name
@@ -61,6 +65,8 @@ class TritonClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.input_name = input_name
+        self.output_name = output_name
         
         # Initialize client
         self.client = self._create_client()
@@ -145,8 +151,8 @@ class TritonClient:
     def infer(
         self,
         inputs: np.ndarray,
-        input_name: str = "input",
-        output_name: str = "output",
+        input_name: Optional[str] = None,
+        output_name: Optional[str] = None,
         normalize: bool = True,
     ) -> np.ndarray:
         """
@@ -154,13 +160,19 @@ class TritonClient:
         
         Args:
             inputs: Input tensor (B, H, W, C) or (B, C, H, W)
-            input_name: Input tensor name in model
-            output_name: Output tensor name in model
+            input_name: Input tensor name in model (uses default from config if None)
+            output_name: Output tensor name in model (uses default from config if None)
             normalize: Whether to L2 normalize embeddings
             
         Returns:
             Embedding vectors (B, D)
         """
+        # Use instance defaults if not provided
+        if input_name is None:
+            input_name = self.input_name
+        if output_name is None:
+            output_name = self.output_name
+            
         # Ensure inputs are float32
         inputs = inputs.astype(np.float32)
         
@@ -238,8 +250,8 @@ class TritonClient:
     def infer_batch(
         self,
         inputs_list: List[np.ndarray],
-        input_name: str = "input",
-        output_name: str = "output",
+        input_name: Optional[str] = None,
+        output_name: Optional[str] = None,
         normalize: bool = True,
         batch_size: int = 32,
     ) -> List[np.ndarray]:
@@ -248,8 +260,8 @@ class TritonClient:
         
         Args:
             inputs_list: List of input tensors
-            input_name: Input tensor name
-            output_name: Output tensor name
+            input_name: Input tensor name (uses default from config if None)
+            output_name: Output tensor name (uses default from config if None)
             normalize: Whether to normalize embeddings
             batch_size: Maximum batch size
             
@@ -282,8 +294,8 @@ class TritonClient:
     def async_infer(
         self,
         inputs: np.ndarray,
-        input_name: str = "input",
-        output_name: str = "output",
+        input_name: Optional[str] = None,
+        output_name: Optional[str] = None,
         callback: Optional[callable] = None,
     ) -> Any:
         """
@@ -291,8 +303,8 @@ class TritonClient:
         
         Args:
             inputs: Input tensor
-            input_name: Input tensor name
-            output_name: Output tensor name
+            input_name: Input tensor name (uses default from config if None)
+            output_name: Output tensor name (uses default from config if None)
             callback: Callback function for async result
             
         Returns:
@@ -301,6 +313,12 @@ class TritonClient:
         if self.protocol != "http":
             raise NotImplementedError("Async inference only supported for HTTP protocol")
         
+        # Use instance defaults if not provided
+        if input_name is None:
+            input_name = self.input_name
+        if output_name is None:
+            output_name = self.output_name
+            
         # Ensure inputs are float32
         inputs = inputs.astype(np.float32)
         
