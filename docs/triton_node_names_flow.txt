@@ -1,0 +1,58 @@
+┌─────────────────────────────────────────────────────────────────┐
+│         Triton Input/Output Node Name Configuration             │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  config.yaml    │    │  Environment    │    │  Code Direct    │
+│                 │    │  Variables      │    │  Init           │
+│ triton:         │    │                 │    │                 │
+│   input_name:   │    │ TRITON_INPUT_   │    │ TritonClient(  │
+│     "images"    │    │   NAME="input"  │    │   input_name=  │
+│   output_name:  │    │ TRITON_OUTPUT_  │    │     "custom",  │
+│     "embeddings"│    │   NAME="output" │    │   output_name= │
+│                 │    │                 │    │     "result"   │
+└────────┬────────┘    └────────┬────────┘    └────────┬────────┘
+         │                      │                       │
+         └──────────────────────┼───────────────────────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   ServiceConfig       │
+                    │   TritonConfig        │
+                    │   - input_name        │
+                    │   - output_name       │
+                    └───────────┬───────────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   TritonClient        │
+                    │   - self.input_name   │
+                    │   - self.output_name  │
+                    └───────────┬───────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            │                   │                   │
+            ▼                   ▼                   ▼
+    ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+    │  infer()      │   │ infer_batch() │   │ async_infer() │
+    │               │   │               │   │               │
+    │ Uses defaults │   │ Uses defaults │   │ Uses defaults │
+    │ or overrides  │   │ or overrides  │   │ or overrides  │
+    └───────┬───────┘   └───────┬───────┘   └───────┬───────┘
+            │                   │                   │
+            └───────────────────┼───────────────────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   Triton Server       │
+                    │   Model Inference     │
+                    │                       │
+                    │   Input: "images"     │
+                    │   Output: "embeddings"│
+                    └───────────────────────┘
+
+Features:
+✓ Multiple configuration methods
+✓ Default values ("input", "output")
+✓ Per-call override capability
+✓ Full backward compatibility
