@@ -1,0 +1,34 @@
+# Triton Configuration
+triton:
+  url: "localhost:8000"
+  model_name: "embedding_model"
+  model_version: "1"
+  protocol: "http"  # http or grpc
+  timeout: 60
+  max_retries: 3
+  retry_delay: 1.0
+
+# Milvus Configuration
+milvus:
+  host: "localhost"
+  port: 19530
+  collection_name: "image_embeddings"
+  embedding_dim: 512
+  index_type: "IVF_FLAT"  # IVF_FLAT, HNSW, FLAT
+  metric_type: "L2"  # L2, IP, COSINE
+  nlist: 128
+  nprobe: 16
+  M: 16
+  efConstruction: 256
+
+# Preprocessing Configuration
+preprocess:
+  image_size: [224, 224]
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  batch_size: 32
+  num_workers: 4
+
+# Service Configuration
+log_level: "INFO"
+cache_compiled_functions: true

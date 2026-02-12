@@ -1,0 +1,38 @@
+# Collection Configuration for Milvus
+collections:
+  - name: "image_embeddings"
+    description: "Default image embedding collection"
+    schema:
+      fields:
+        - name: "id"
+          type: "VARCHAR"
+          max_length: 256
+          primary_key: true
+          auto_id: false
+        - name: "embedding"
+          type: "FLOAT_VECTOR"
+          dim: 512
+        - name: "metadata"
+          type: "JSON"
+    index:
+      field_name: "embedding"
+      index_type: "IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT
+      metric_type: "L2"  # Options: L2, IP, COSINE
+      params:
+        nlist: 128  # for IVF_FLAT
+        # M: 16  # for HNSW
+        # efConstruction: 256  # for HNSW
+    search_params:
+      nprobe: 16  # for IVF_FLAT
+      # ef: 64  # for HNSW
+
+# Alternative HNSW Configuration
+# For better search quality at the cost of build time:
+#   - name: "image_embeddings_hnsw"
+#     index:
+#       index_type: "HNSW"
+#       params:
+#         M: 16
+#         efConstruction: 256
+#     search_params:
+#       ef: 64
