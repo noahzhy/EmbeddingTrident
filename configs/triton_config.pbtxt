@@ -12,7 +12,7 @@ output [
   {
     name: "output"
     data_type: TYPE_FP32
-    dims: [ 512 ]
+    dims: [ 768 ]
   }
 ]
 
@@ -24,7 +24,7 @@ instance_group [
 ]
 
 dynamic_batching {
-  max_queue_delay_microseconds: 100
+  max_queue_delay_microseconds: 5000
 }
 
 optimization {

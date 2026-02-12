@@ -1,6 +1,6 @@
 # Collection Configuration for Milvus
 collections:
-  - name: "image_embeddings"
+  - name: "test_collection"
     description: "Default image embedding collection"
     schema:
       fields:
@@ -9,15 +9,15 @@ collections:
           max_length: 256
           primary_key: true
           auto_id: false
-        - name: "embedding"
+        - name: "vector"
           type: "FLOAT_VECTOR"
-          dim: 512
+          dim: 768
         - name: "metadata"
           type: "JSON"
     index:
-      field_name: "embedding"
-      index_type: "IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT
-      metric_type: "L2"  # Options: L2, IP, COSINE
+      field_name: "vector"
+      index_type: "GPU_IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
+      metric_type: "IP"  # Options: L2, IP, COSINE
       params:
         nlist: 128  # for IVF_FLAT
         # M: 16  # for HNSW

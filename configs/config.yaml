@@ -1,7 +1,7 @@
 # Triton Configuration
 triton:
   url: "localhost:8000"
-  model_name: "embedding_model"
+  model_name: "embedding_siglip2"
   model_version: "1"
   protocol: "http"  # http or grpc
   timeout: 60
@@ -12,10 +12,10 @@ triton:
 milvus:
   host: "localhost"
   port: 19530
-  collection_name: "image_embeddings"
-  embedding_dim: 512
-  index_type: "IVF_FLAT"  # IVF_FLAT, HNSW, FLAT
-  metric_type: "L2"  # L2, IP, COSINE
+  collection_name: "test_collection"
+  embedding_dim: 768
+  index_type: "GPU_IVF_FLAT"  # IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
+  metric_type: "IP"  # L2, IP, COSINE
   nlist: 128
   nprobe: 16
   M: 16
