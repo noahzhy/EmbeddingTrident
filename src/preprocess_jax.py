@@ -11,6 +11,7 @@ from PIL import Image
 import io
 import requests
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
 
@@ -32,6 +33,7 @@ class JAXImagePreprocessor:
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
         cache_compiled: bool = True,
         data_format: str = 'NHWC',
+        max_workers: int = 4,
     ):
         """
         Initialize the preprocessor.
@@ -43,12 +45,14 @@ class JAXImagePreprocessor:
             cache_compiled: Whether to cache JIT-compiled functions
             data_format: Output data format - 'NHWC' (batch, height, width, channels) 
                         or 'NCHW' (batch, channels, height, width). Default: 'NHWC'
+            max_workers: Maximum number of threads for parallel image loading
         """
         self.image_size = image_size
         self.mean = jnp.array(mean, dtype=jnp.float32).reshape(1, 1, 3)
         self.std = jnp.array(std, dtype=jnp.float32).reshape(1, 1, 3)
         self.cache_compiled = cache_compiled
         self.data_format = data_format.upper()
+        self.max_workers = max_workers
         
         if self.data_format not in ['NHWC', 'NCHW']:
             raise ValueError(f"data_format must be 'NHWC' or 'NCHW', got {data_format}")
@@ -122,17 +126,45 @@ class JAXImagePreprocessor:
             self._preprocess_jit = jit(self._preprocess_single_jax)
         return self._preprocess_jit
     
-    def _preprocess_batch_vmap(self) -> callable:
+    @staticmethod
+    @jit
+    def _transpose_single_nchw(image: jnp.ndarray) -> jnp.ndarray:
         """
-        Create vectorized batch preprocessing function using vmap.
+        JIT-compiled transpose for single image from NHWC to NCHW.
+        
+        Args:
+            image: Input image (H, W, C)
+            
+        Returns:
+            Transposed image (C, H, W)
+        """
+        return jnp.transpose(image, (2, 0, 1))
+    
+    @staticmethod
+    @jit
+    def _transpose_batch_nchw(batch: jnp.ndarray) -> jnp.ndarray:
+        """
+        JIT-compiled transpose for batch from NHWC to NCHW.
+        
+        Args:
+            batch: Input batch (B, H, W, C)
+            
+        Returns:
+            Transposed batch (B, C, H, W)
+        """
+        return jnp.transpose(batch, (0, 3, 1, 2))
+    
+    def _get_preprocess_batch_vmap(self) -> callable:
+        """
+        Get or create cached vectorized batch preprocessing function.
         
         Returns:
-            Vectorized preprocessing function
+            Cached vectorized preprocessing function
         """
-        # Get jitted function
-        preprocess_jit = self._get_preprocess_single_jitted()
-        # Vectorize over the batch dimension
-        return vmap(preprocess_jit, in_axes=0)
+        if not hasattr(self, '_preprocess_batch_vmap_cached'):
+            preprocess_jit = self._get_preprocess_single_jitted()
+            self._preprocess_batch_vmap_cached = vmap(preprocess_jit, in_axes=0)
+        return self._preprocess_batch_vmap_cached
     
     def _warmup(self) -> None:
         """Warmup JIT compilation with dummy data."""
@@ -143,8 +175,13 @@ class JAXImagePreprocessor:
         
         # Warmup batch processing with small batch
         dummy_batch = jnp.ones((4, *self.image_size, 3), dtype=jnp.float32)
-        batch_fn = self._preprocess_batch_vmap()
+        batch_fn = self._get_preprocess_batch_vmap()
         _ = batch_fn(dummy_batch)
+        
+        # Warmup transpose functions if using NCHW
+        if self.data_format == 'NCHW':
+            _ = self._transpose_single_nchw(dummy_image)
+            _ = self._transpose_batch_nchw(dummy_batch)
         
         logger.info("JAX functions compiled and cached")
     
@@ -200,6 +237,20 @@ class JAXImagePreprocessor:
         else:
             return self.load_image_from_path(input_path)
     
+    def load_images_parallel(self, paths: List[str]) -> List[np.ndarray]:
+        """
+        Load multiple images in parallel using ThreadPoolExecutor.
+        
+        Args:
+            paths: List of image paths or URLs
+            
+        Returns:
+            List of loaded images as numpy arrays
+        """
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            images = list(executor.map(self.load_image, paths))
+        return images
+    
     def preprocess_single(self, image: Union[np.ndarray, str]) -> np.ndarray:
         """
         Preprocess a single image.
@@ -220,9 +271,9 @@ class JAXImagePreprocessor:
         preprocess_jit = self._get_preprocess_single_jitted()
         processed = preprocess_jit(jax_image)
         
-        # Convert to NCHW if requested
+        # Convert to NCHW if requested using JIT-compiled transpose
         if self.data_format == 'NCHW':
-            processed = jnp.transpose(processed, (2, 0, 1))  # (H, W, C) -> (C, H, W)
+            processed = self._transpose_single_nchw(processed)
         
         # Convert back to numpy
         return np.array(processed)
@@ -241,26 +292,46 @@ class JAXImagePreprocessor:
             Batch of preprocessed images (B, H, W, C) if NHWC format, 
             or (B, C, H, W) if NCHW format
         """
-        # Load all images
-        loaded_images = []
-        for img in images:
-            if isinstance(img, str):
-                img = self.load_image(img)
-            loaded_images.append(img)
+        # Check if we need to load images
+        needs_loading = any(isinstance(img, str) for img in images)
         
-        # Stack into batch
+        if needs_loading:
+            # Separate paths and arrays
+            paths = [img for img in images if isinstance(img, str)]
+            arrays = [img for img in images if not isinstance(img, str)]
+            
+            # Load images in parallel if there are paths
+            if paths:
+                loaded_from_paths = self.load_images_parallel(paths)
+                # Combine with arrays in original order
+                loaded_images = []
+                path_idx = 0
+                array_idx = 0
+                for img in images:
+                    if isinstance(img, str):
+                        loaded_images.append(loaded_from_paths[path_idx])
+                        path_idx += 1
+                    else:
+                        loaded_images.append(arrays[array_idx])
+                        array_idx += 1
+            else:
+                loaded_images = arrays
+        else:
+            loaded_images = images
+        
+        # Stack into batch - pre-allocate for efficiency
         batch = np.stack(loaded_images, axis=0).astype(np.float32)
         
         # Convert to JAX
         jax_batch = jnp.array(batch)
         
-        # Vectorized preprocessing
-        batch_fn = self._preprocess_batch_vmap()
+        # Vectorized preprocessing using cached vmap
+        batch_fn = self._get_preprocess_batch_vmap()
         processed_batch = batch_fn(jax_batch)
         
-        # Convert to NCHW if requested
+        # Convert to NCHW if requested using JIT-compiled transpose
         if self.data_format == 'NCHW':
-            processed_batch = jnp.transpose(processed_batch, (0, 3, 1, 2))  # (B, H, W, C) -> (B, C, H, W)
+            processed_batch = self._transpose_batch_nchw(processed_batch)
         
         # Convert back to numpy
         return np.array(processed_batch)
