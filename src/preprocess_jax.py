@@ -34,6 +34,8 @@ class JAXImagePreprocessor:
         cache_compiled: bool = True,
         data_format: str = 'NHWC',
         max_workers: int = 4,
+        use_gpu: bool = False,
+        jax_platform: Optional[str] = None,
     ):
         """
         Initialize the preprocessor.
@@ -46,6 +48,8 @@ class JAXImagePreprocessor:
             data_format: Output data format - 'NHWC' (batch, height, width, channels) 
                         or 'NCHW' (batch, channels, height, width). Default: 'NHWC'
             max_workers: Maximum number of threads for parallel image loading
+            use_gpu: Whether to use GPU for JAX preprocessing (default: False)
+            jax_platform: Specific JAX platform to use ('cpu', 'gpu', 'tpu', or None for auto)
         """
         self.image_size = image_size
         self.mean = jnp.array(mean, dtype=jnp.float32).reshape(1, 1, 3)
@@ -53,14 +57,78 @@ class JAXImagePreprocessor:
         self.cache_compiled = cache_compiled
         self.data_format = data_format.upper()
         self.max_workers = max_workers
+        self.use_gpu = use_gpu
+        self.jax_platform = jax_platform
         
         if self.data_format not in ['NHWC', 'NCHW']:
             raise ValueError(f"data_format must be 'NHWC' or 'NCHW', got {data_format}")
+        
+        # Configure JAX device
+        self._configure_jax_device()
         
         # Pre-compile functions
         if cache_compiled:
             logger.info("Pre-compiling JAX functions...")
             self._warmup()
+    
+    def _configure_jax_device(self) -> None:
+        """
+        Configure JAX to use specified device (CPU/GPU/TPU).
+        
+        Sets up JAX device based on configuration and logs the device being used.
+        Gracefully falls back to CPU if requested device is not available.
+        """
+        try:
+            # Get available devices
+            devices = jax.devices()
+            
+            # Determine target platform
+            target_platform = None
+            if self.jax_platform:
+                target_platform = self.jax_platform.lower()
+            elif self.use_gpu:
+                target_platform = 'gpu'
+            
+            if target_platform:
+                # Try to get devices of the specified type
+                try:
+                    platform_devices = [d for d in devices if d.platform.lower() == target_platform]
+                    if platform_devices:
+                        self.device = platform_devices[0]
+                        logger.info(f"JAX configured to use {target_platform.upper()}: {self.device}")
+                    else:
+                        logger.warning(
+                            f"No {target_platform.upper()} devices found. "
+                            f"Available devices: {[d.platform for d in devices]}. "
+                            f"Falling back to default device."
+                        )
+                        self.device = jax.devices()[0]
+                        logger.info(f"Using default device: {self.device}")
+                except Exception as e:
+                    logger.warning(f"Error selecting {target_platform} device: {e}. Using default device.")
+                    self.device = jax.devices()[0]
+                    logger.info(f"Using default device: {self.device}")
+            else:
+                # Use default device (usually CPU)
+                self.device = jax.devices()[0]
+                logger.info(f"Using default JAX device: {self.device}")
+                
+        except Exception as e:
+            logger.error(f"Error configuring JAX device: {e}. Using default.")
+            self.device = jax.devices()[0]
+            logger.info(f"Using default device: {self.device}")
+    
+    def _to_device(self, array: jnp.ndarray) -> jnp.ndarray:
+        """
+        Transfer array to the configured device.
+        
+        Args:
+            array: JAX array
+            
+        Returns:
+            Array on the configured device
+        """
+        return jax.device_put(array, self.device)
     
     def _resize_image_jax(self, image: jnp.ndarray) -> jnp.ndarray:
         """
@@ -170,11 +238,13 @@ class JAXImagePreprocessor:
         """Warmup JIT compilation with dummy data."""
         # Use configured image_size instead of hardcoded values
         dummy_image = jnp.ones((*self.image_size, 3), dtype=jnp.float32)
+        dummy_image = self._to_device(dummy_image)
         preprocess_jit = self._get_preprocess_single_jitted()
         _ = preprocess_jit(dummy_image)
         
         # Warmup batch processing with small batch
         dummy_batch = jnp.ones((4, *self.image_size, 3), dtype=jnp.float32)
+        dummy_batch = self._to_device(dummy_batch)
         batch_fn = self._get_preprocess_batch_vmap()
         _ = batch_fn(dummy_batch)
         
@@ -264,8 +334,9 @@ class JAXImagePreprocessor:
         if isinstance(image, str):
             image = self.load_image(image)
         
-        # Convert to JAX array
+        # Convert to JAX array and place on configured device
         jax_image = jnp.array(image, dtype=jnp.float32)
+        jax_image = self._to_device(jax_image)
         
         # Preprocess with jitted function
         preprocess_jit = self._get_preprocess_single_jitted()
@@ -322,8 +393,9 @@ class JAXImagePreprocessor:
         # Stack into batch - pre-allocate for efficiency
         batch = np.stack(loaded_images, axis=0).astype(np.float32)
         
-        # Convert to JAX
+        # Convert to JAX and place on configured device
         jax_batch = jnp.array(batch)
+        jax_batch = self._to_device(jax_batch)
         
         # Vectorized preprocessing using cached vmap
         batch_fn = self._get_preprocess_batch_vmap()

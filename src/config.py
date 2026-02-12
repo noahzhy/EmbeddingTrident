@@ -47,6 +47,8 @@ class PreprocessConfig:
     batch_size: int = 32
     num_workers: int = 4
     data_format: str = "NCHW"  # Output format: NCHW or NHWC
+    use_gpu: bool = False  # Whether to use GPU for JAX preprocessing
+    jax_platform: Optional[str] = None  # JAX platform: 'cpu', 'gpu', 'tpu', or None for auto
 
 
 @dataclass
@@ -107,6 +109,12 @@ class ServiceConfig:
             config.milvus.collection_name = os.getenv('MILVUS_COLLECTION_NAME')
         if os.getenv('MILVUS_EMBEDDING_DIM'):
             config.milvus.embedding_dim = int(os.getenv('MILVUS_EMBEDDING_DIM'))
+        
+        # Preprocessing / JAX
+        if os.getenv('JAX_USE_GPU'):
+            config.preprocess.use_gpu = os.getenv('JAX_USE_GPU').lower() in ('true', '1', 'yes')
+        if os.getenv('JAX_PLATFORM'):
+            config.preprocess.jax_platform = os.getenv('JAX_PLATFORM')
             
         # Logging
         if os.getenv('LOG_LEVEL'):
@@ -147,6 +155,8 @@ class ServiceConfig:
                 'batch_size': self.preprocess.batch_size,
                 'num_workers': self.preprocess.num_workers,
                 'data_format': self.preprocess.data_format,
+                'use_gpu': self.preprocess.use_gpu,
+                'jax_platform': self.preprocess.jax_platform,
             },
             'log_level': self.log_level,
             'cache_compiled_functions': self.cache_compiled_functions,

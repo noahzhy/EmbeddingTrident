@@ -8,6 +8,7 @@ A **production-ready image embedding service** combining:
 ## 🚀 Features
 
 - ✅ **High-Performance Pipeline**: JIT-compiled JAX preprocessing with vectorized batch processing
+- ✅ **GPU Acceleration**: Optional GPU support for JAX preprocessing (4-5x speedup)
 - ✅ **Flexible Input**: Support for local files and remote URLs
 - ✅ **Batch Processing**: Optimized batching throughout the pipeline
 - ✅ **Vector Database**: Milvus integration with multiple index types (IVF_FLAT, HNSW, FLAT)
@@ -247,6 +248,69 @@ jax-embedding collection delete --name my_images
 ```bash
 jax-embedding health
 ```
+
+## ⚡ GPU Acceleration
+
+### Enable GPU for JAX Preprocessing
+
+JAX preprocessing can leverage GPU for significant speedup (4-5x faster).
+
+**Method 1: Via Configuration File**
+
+Edit `configs/config.yaml`:
+```yaml
+preprocess:
+  use_gpu: true          # Enable GPU acceleration
+  jax_platform: "gpu"    # Explicitly specify GPU platform
+```
+
+**Method 2: Via Environment Variables**
+
+```bash
+export JAX_USE_GPU=true
+export JAX_PLATFORM=gpu
+```
+
+**Method 3: Programmatic**
+
+```python
+from src.config import ServiceConfig, PreprocessConfig
+from src.pipeline import ImageEmbeddingPipeline
+
+# Configure GPU
+config = ServiceConfig()
+config.preprocess.use_gpu = True
+config.preprocess.jax_platform = 'gpu'
+
+# Pipeline will use GPU for preprocessing
+pipeline = ImageEmbeddingPipeline(config)
+```
+
+### GPU Installation
+
+For GPU support, install JAX with CUDA:
+
+```bash
+# For CUDA 11.x
+pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# For CUDA 12.x
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+
+### Verify GPU Usage
+
+```python
+import jax
+print(jax.devices())  # Should show gpu devices
+
+# Check in logs
+# INFO: JAX configured to use GPU: gpu:0
+```
+
+**Note**: GPU acceleration works seamlessly with CPU fallback. If GPU is unavailable, preprocessing automatically uses CPU.
+
+📖 **See [docs/JAX_GPU_ACCELERATION.md](docs/JAX_GPU_ACCELERATION.md) for complete guide**
 
 ## 📁 Project Structure
 

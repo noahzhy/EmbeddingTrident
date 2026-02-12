@@ -54,6 +54,9 @@ class ImageEmbeddingPipeline:
             std=config.preprocess.std,
             cache_compiled=config.cache_compiled_functions,
             data_format=config.preprocess.data_format,
+            max_workers=config.preprocess.num_workers,
+            use_gpu=config.preprocess.use_gpu,
+            jax_platform=config.preprocess.jax_platform,
         )
         
         # Triton client
