@@ -161,9 +161,13 @@ class MilvusClient:
             name: Collection name
             
         Returns:
-            True if collection exists
+            True if collection exists, False otherwise or on error
         """
-        return utility.has_collection(name)
+        try:
+            return utility.has_collection(name)
+        except Exception as e:
+            logger.warning(f"Error checking if collection '{name}' exists: {e}")
+            return False  # Assume collection doesn't exist on error
     
     def create_collection(
         self,
