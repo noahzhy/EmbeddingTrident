@@ -3,7 +3,7 @@ Configuration management for the image embedding service.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 import yaml
 import os
 from pathlib import Path
@@ -70,6 +70,7 @@ class ServiceConfig:
     preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)
     log_level: str = "INFO"
     cache_compiled_functions: bool = True
+    collections: Optional[List[Dict[str, Any]]] = None  # Detailed Milvus collection schema definitions
     
     @classmethod
     def from_yaml(cls, path: str) -> "ServiceConfig":
@@ -89,6 +90,8 @@ class ServiceConfig:
             config.log_level = data['log_level']
         if 'cache_compiled_functions' in data:
             config.cache_compiled_functions = data['cache_compiled_functions']
+        if 'collections' in data:
+            config.collections = data['collections']
             
         return config
     
@@ -175,6 +178,9 @@ class ServiceConfig:
             'log_level': self.log_level,
             'cache_compiled_functions': self.cache_compiled_functions,
         }
+        
+        if self.collections is not None:
+            data['collections'] = self.collections
         
         with open(path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False)

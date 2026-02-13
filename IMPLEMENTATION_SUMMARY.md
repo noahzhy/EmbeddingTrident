@@ -52,9 +52,8 @@ This project implements a complete, production-ready image embedding service usi
 
 ### Configuration Files (configs/)
 
-- **config.yaml** - Main service configuration
+- **config.yaml** - Unified service configuration including Milvus schema definitions
 - **triton_config.pbtxt** - Triton model configuration
-- **milvus_config.yaml** - Milvus schema configuration
 
 ### Examples (examples/)
 
