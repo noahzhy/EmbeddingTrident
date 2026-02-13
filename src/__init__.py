@@ -17,7 +17,7 @@ from .config import ServiceConfig, PreprocessConfig, TritonConfig, MilvusConfig
 
 __all__ = [
     "ImagePreprocessor",
-    "JAXImagePreprocessor", 
+    "JAXImagePreprocessor",
     "ImageEmbeddingPipeline",
     "ServiceConfig",
     "PreprocessConfig",

@@ -132,12 +132,30 @@ def test_protocol_compliance():
     simple_prep = SimplePreprocessor()
     assert isinstance(simple_prep, ImagePreprocessor), \
         "SimplePreprocessor should implement ImagePreprocessor protocol"
+    
+    # Verify required methods exist and are callable
+    assert callable(getattr(simple_prep, 'preprocess_single', None)), \
+        "SimplePreprocessor must have callable preprocess_single method"
+    assert callable(getattr(simple_prep, 'preprocess_batch', None)), \
+        "SimplePreprocessor must have callable preprocess_batch method"
+    assert callable(getattr(simple_prep, '__call__', None)), \
+        "SimplePreprocessor must have callable __call__ method"
+    
     logger.info("✓ SimplePreprocessor implements ImagePreprocessor protocol")
     
     # Test JAXImagePreprocessor
     jax_prep = JAXImagePreprocessor(cache_compiled=False)
     assert isinstance(jax_prep, ImagePreprocessor), \
         "JAXImagePreprocessor should implement ImagePreprocessor protocol"
+    
+    # Verify required methods exist and are callable
+    assert callable(getattr(jax_prep, 'preprocess_single', None)), \
+        "JAXImagePreprocessor must have callable preprocess_single method"
+    assert callable(getattr(jax_prep, 'preprocess_batch', None)), \
+        "JAXImagePreprocessor must have callable preprocess_batch method"
+    assert callable(getattr(jax_prep, '__call__', None)), \
+        "JAXImagePreprocessor must have callable __call__ method"
+    
     logger.info("✓ JAXImagePreprocessor implements ImagePreprocessor protocol")
 
 
