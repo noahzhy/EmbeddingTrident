@@ -320,6 +320,65 @@ class MilvusClient:
             logger.error(f"Failed to create index: {e}")
             raise
     
+    def drop_index(self, collection_name: Optional[str] = None) -> None:
+        """
+        Drop index from collection to improve insertion performance.
+        
+        Args:
+            collection_name: Target collection name
+        """
+        collection_name = collection_name or self.default_collection_name
+        
+        try:
+            collection = self.get_collection(collection_name)
+            
+            # Check if index exists
+            if collection.has_index():
+                collection.drop_index()
+                logger.info(f"Dropped index from collection '{collection_name}'")
+            else:
+                logger.info(f"No index to drop in collection '{collection_name}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to drop index from collection '{collection_name}': {e}")
+            raise
+    
+    def create_index(self, collection_name: Optional[str] = None) -> None:
+        """
+        Create index on collection after bulk insertion.
+        
+        Args:
+            collection_name: Target collection name
+        """
+        collection_name = collection_name or self.default_collection_name
+        
+        try:
+            collection = self.get_collection(collection_name)
+            self._create_index(collection)
+            logger.info(f"Created index on collection '{collection_name}'")
+            
+        except Exception as e:
+            logger.error(f"Failed to create index on collection '{collection_name}': {e}")
+            raise
+    
+    def flush_collection(self, collection_name: Optional[str] = None) -> None:
+        """
+        Manually flush collection to persist data.
+        
+        Args:
+            collection_name: Target collection name
+        """
+        collection_name = collection_name or self.default_collection_name
+        
+        try:
+            collection = self.get_collection(collection_name)
+            collection.flush()
+            logger.info(f"Flushed collection '{collection_name}'")
+            
+        except Exception as e:
+            logger.error(f"Failed to flush collection '{collection_name}': {e}")
+            raise
+    
     def get_collection(self, name: Optional[str] = None) -> Collection:
         """
         Get an existing collection.
@@ -382,7 +441,9 @@ class MilvusClient:
         embeddings: np.ndarray,
         metadata: Optional[List[Dict[str, Any]]] = None,
         collection_name: Optional[str] = None,
-    ) -> List[str]:
+        auto_flush: bool = True,
+        _async: bool = False,
+    ):
         """
         Insert embeddings into collection.
         
@@ -391,9 +452,11 @@ class MilvusClient:
             embeddings: Embedding vectors (N, D)
             metadata: Optional metadata for each embedding
             collection_name: Target collection name
+            auto_flush: Whether to flush after insert (default: True)
+            _async: Whether to use async insert (Milvus 2.3+, default: False)
             
         Returns:
-            List of inserted IDs
+            List of inserted IDs (or MutationFuture if _async=True)
         """
         collection_name = collection_name or self.default_collection_name
         
@@ -486,24 +549,32 @@ class MilvusClient:
                     f"Collection '{collection_name}' has no 'metadata' field; provided metadata will be ignored"
                 )
             
-            # Insert
-            insert_result = collection.insert(entities)
-            
-            # Flush to ensure data is written
-            collection.flush()
-            
-            insert_time = time.time() - start_time
-            throughput = len(ids) / insert_time
-            inserted_ids = ids
-            if hasattr(insert_result, "primary_keys") and insert_result.primary_keys:
-                inserted_ids = [str(primary_key) for primary_key in insert_result.primary_keys]
-            
-            logger.info(
-                f"Inserted {len(inserted_ids)} embeddings in {insert_time:.3f}s "
-                f"({throughput:.0f} vectors/sec)"
-            )
-            
-            return inserted_ids
+            # Insert with optional async mode
+            if _async:
+                # Async insert (Milvus 2.3+)
+                insert_result = collection.insert(entities, _async=True)
+                logger.debug(f"Async insert started for {len(ids)} embeddings")
+                return insert_result  # Return MutationFuture
+            else:
+                # Synchronous insert
+                insert_result = collection.insert(entities)
+                
+                # Optional flush to ensure data is written
+                if auto_flush:
+                    collection.flush()
+                
+                insert_time = time.time() - start_time
+                throughput = len(ids) / insert_time
+                inserted_ids = ids
+                if hasattr(insert_result, "primary_keys") and insert_result.primary_keys:
+                    inserted_ids = [str(primary_key) for primary_key in insert_result.primary_keys]
+                
+                logger.info(
+                    f"Inserted {len(inserted_ids)} embeddings in {insert_time:.3f}s "
+                    f"({throughput:.0f} vectors/sec){'' if auto_flush else ' (no flush)'}"
+                )
+                
+                return inserted_ids
             
         except Exception as e:
             logger.error(f"Failed to insert embeddings: {e}")

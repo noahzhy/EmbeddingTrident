@@ -278,6 +278,16 @@ class ImageEmbeddingPipeline:
         
         start_time = time.time()
         
+        # Get collection name
+        collection_name = collection_name or self.milvus_client.default_collection_name
+        
+        # OPTIMIZATION 1: Drop index before bulk insertion to improve performance
+        logger.info(f"Dropping index from collection '{collection_name}' for bulk insertion")
+        try:
+            self.milvus_client.drop_index(collection_name)
+        except Exception as e:
+            logger.warning(f"Could not drop index (may not exist): {e}")
+        
         # Preprocess all images in the main thread (JAX operations must run in the same thread)
         logger.info(f"Preprocessing {len(inputs)} images in batches of {batch_size}")
         preprocessed_batches = []
@@ -398,7 +408,7 @@ class ImageEmbeddingPipeline:
                     
                     logger.debug(f"Milvus inserter: accumulated batch {item['batch_idx']}, total buffered={len(batch_ids_list)}")
                     
-                    # Insert when batch is full
+                    # Insert when batch is full (OPTIMIZATION 2: disable auto_flush)
                     if len(batch_ids_list) >= insert_batch_size:
                         combined_embeddings = np.concatenate(batch_embeddings, axis=0)
                         combined_metadata = batch_metadata_list if batch_metadata_list else None
@@ -408,6 +418,7 @@ class ImageEmbeddingPipeline:
                             embeddings=combined_embeddings,
                             metadata=combined_metadata,
                             collection_name=collection_name,
+                            auto_flush=False,  # Don't flush on every insert
                         )
                         
                         inserted_count += len(batch_ids_list)
@@ -420,7 +431,7 @@ class ImageEmbeddingPipeline:
                     
                     embedding_queue.task_done()
                 
-                # Insert remaining items
+                # Insert remaining items (OPTIMIZATION 2: disable auto_flush)
                 if batch_ids_list:
                     combined_embeddings = np.concatenate(batch_embeddings, axis=0)
                     combined_metadata = batch_metadata_list if batch_metadata_list else None
@@ -430,6 +441,7 @@ class ImageEmbeddingPipeline:
                         embeddings=combined_embeddings,
                         metadata=combined_metadata,
                         collection_name=collection_name,
+                        auto_flush=False,  # Don't flush on every insert
                     )
                     
                     inserted_count += len(batch_ids_list)
@@ -455,6 +467,14 @@ class ImageEmbeddingPipeline:
         # Check for errors
         if error_container:
             raise RuntimeError(f"Async pipeline failed: {error_container[0]}")
+        
+        # OPTIMIZATION 2: Flush once at the end instead of after each insert
+        logger.info(f"Flushing collection '{collection_name}' after bulk insertion")
+        self.milvus_client.flush_collection(collection_name)
+        
+        # OPTIMIZATION 1: Recreate index after bulk insertion
+        logger.info(f"Creating index on collection '{collection_name}' after bulk insertion")
+        self.milvus_client.create_index(collection_name)
         
         total_time = time.time() - start_time
         throughput = len(inputs) / total_time
