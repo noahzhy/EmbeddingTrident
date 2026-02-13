@@ -6,6 +6,8 @@
 
 The async pipeline architecture optimizes throughput by decoupling preprocessing, embedding generation, and database insertion operations. This prevents the GPU from waiting for database operations, significantly improving overall throughput.
 
+**Implementation:** Uses gevent greenlets for cooperative multitasking instead of OS threads.
+
 ### Architecture
 
 ```
@@ -16,30 +18,33 @@ The async pipeline architecture optimizes throughput by decoupling preprocessing
          │
          ▼
 ┌─────────────────┐
-│  Producer       │  Queue management
-│  Thread         │  (feeds preprocessed data)
+│  Producer       │  Queue management (gevent greenlet)
+│  Greenlet       │  (feeds preprocessed data)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  Embedding      │  GPU inference
+│  Embedding      │  GPU inference (gevent greenlets)
 │  Worker Pool    │  (Triton inference)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
 │  Queue          │  Buffering embeddings
-│  (async)        │
+│  (gevent.queue) │
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  Milvus Async   │  Batch insertion
+│  Milvus Async   │  Batch insertion (gevent greenlet)
 │  Inserter       │  (async database ops)
 └─────────────────┘
 ```
 
-**Note:** JAX preprocessing runs in the main thread to avoid thread-switching errors. The producer thread only manages queue operations.
+**Notes:** 
+- JAX preprocessing runs in the main thread to avoid thread-switching errors
+- Producer, workers, and inserter use gevent greenlets (not OS threads)
+- Gevent provides cooperative multitasking within a single OS thread
 
 ### Problem Statement
 
@@ -53,15 +58,34 @@ The GPU waits for:
 - Data preprocessing to complete
 - Database insertion to complete
 
-**After (Async Pipeline):**
+**After (Async Pipeline with Gevent):**
 ```
-Main Thread (JAX preprocess) ──→ Producer Thread (queue) ──→ Embedding Workers (GPU) ──→ Queue ──→ Milvus Inserter
+Main Thread (JAX preprocess) ──→ Producer Greenlet (queue) ──→ Embedding Greenlets (GPU) ──→ Queue ──→ Milvus Greenlet
 ```
 
 The GPU never waits:
 - JAX preprocessing happens in main thread (avoids thread-switching errors)
-- Queue management happens in producer thread
-- Database operations happen asynchronously in background
+- Queue management happens in producer greenlet
+- Database operations happen asynchronously with gevent greenlets
+
+### Why Gevent?
+
+**Gevent vs Threading:**
+
+| Feature | Threading (OS Threads) | Gevent (Greenlets) |
+|---------|----------------------|-------------------|
+| Memory per worker | ~8MB per thread | ~4KB per greenlet |
+| Context switching | Preemptive (OS) | Cooperative (explicit) |
+| Overhead | High | Low |
+| Scalability | ~1000 threads | ~10,000+ greenlets |
+| Gevent compatibility | ❌ Context mismatch | ✅ Native support |
+
+**Key Advantages:**
+1. **Lightweight**: Greenlets use 2000x less memory than OS threads
+2. **No Context Errors**: Works seamlessly with gevent-based applications
+3. **Better I/O Performance**: Optimized for network and database operations
+4. **Cooperative Scheduling**: Predictable, deterministic behavior
+5. **Easy Migration**: API compatible with threading module
 
 ### Key Benefits
 
@@ -69,6 +93,7 @@ The GPU never waits:
 2. **Better Resource Utilization**: CPU, GPU, and database work in parallel
 3. **Improved Scalability**: Can handle larger batch sizes with controlled memory
 4. **Flexible Configuration**: Tune worker counts and batch sizes for your workload
+5. **Gevent Compatible**: Works with gevent-based web servers (gunicorn, etc.)
 
 ### Usage
 
