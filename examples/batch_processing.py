@@ -147,8 +147,9 @@ def main():
     logger.info("Starting batch processing benchmark...")
     
     # Load configuration
-    config = ServiceConfig.from_env()
-    
+    # config = ServiceConfig.from_env()
+    config = ServiceConfig.from_yaml(os.path.join(os.path.dirname(__file__), 'siglip2_cfg.yaml'))
+
     # Create pipeline
     with ImageEmbeddingPipeline(config) as pipeline:
         
@@ -160,7 +161,7 @@ def main():
             return
         
         # Run benchmarks with different batch sizes
-        for batch_size in [16, 32]:
+        for batch_size in [32, 64]:
             logger.info(f"\n{'='*60}")
             logger.info(f"Batch size: {batch_size}")
             logger.info(f"{'='*60}\n")
@@ -168,7 +169,7 @@ def main():
             try:
                 benchmark_pipeline(
                     pipeline,
-                    num_images=1000,
+                    num_images=1024,
                     batch_size=batch_size,
                 )
             except Exception as e:
