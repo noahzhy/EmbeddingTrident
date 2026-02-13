@@ -9,6 +9,7 @@ A **production-ready image embedding service** combining:
 ## 🚀 Features
 
 - ✅ **High-Performance Pipeline**: JIT-compiled JAX preprocessing with vectorized batch processing
+- ✅ **Streaming Multiprocessing**: Parallel preprocessing across CPU cores for maximum throughput
 - ✅ **Async Pipeline Architecture**: Producer-consumer pattern prevents GPU waiting on database (20-50% faster)
 - ✅ **GPU Acceleration**: Optional GPU support for JAX preprocessing (4-5x speedup)
 - ✅ **Custom Preprocessors**: Extensible preprocessing interface - bring your own preprocessing logic
@@ -139,6 +140,41 @@ with ImageEmbeddingPipeline(config) as pipeline:
     for result in results:
         print(f"ID: {result['id']}, Score: {result['score']:.4f}")
 ```
+
+### Streaming Multiprocessing for Maximum Throughput
+
+For maximum preprocessing throughput on large batches (1000+ images), use the streaming multiprocessing pipeline which parallelizes preprocessing across multiple CPU cores:
+
+```python
+from src.pipeline import ImageEmbeddingPipeline
+from src.config import ServiceConfig
+
+config = ServiceConfig.from_yaml('configs/config.yaml')
+pipeline = ImageEmbeddingPipeline(config)
+
+# Large batch of images
+image_paths = [f"/data/image_{i:06d}.jpg" for i in range(10000)]
+ids = [f"img_{i:06d}" for i in range(10000)]
+
+# Use streaming multiprocessing (2-4x faster for large batches)
+ids = pipeline.insert_images_streaming(
+    inputs=image_paths,
+    ids=ids,
+    batch_size=32,
+    num_preprocess_workers=8,  # Use 8 CPU cores for preprocessing
+)
+
+print(f"Inserted {len(ids)} images with streaming preprocessing!")
+```
+
+**When to use streaming multiprocessing:**
+- ✅ Large batches (1000+ images)
+- ✅ I/O-bound workloads (slow storage/network)
+- ✅ Long-running services with continuous processing
+- ❌ Small batches (<100 images) - process startup overhead dominates
+- ❌ Data already in memory - no I/O bottleneck to exploit
+
+See [STREAMING_PREPROCESSING_CN.md](STREAMING_PREPROCESSING_CN.md) for detailed documentation.
 
 ### Async Pipeline for High Throughput
 
