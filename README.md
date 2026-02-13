@@ -10,6 +10,7 @@ A **production-ready image embedding service** combining:
 
 - ✅ **High-Performance Pipeline**: JIT-compiled JAX preprocessing with vectorized batch processing
 - ✅ **GPU Acceleration**: Optional GPU support for JAX preprocessing (4-5x speedup)
+- ✅ **Custom Preprocessors**: Extensible preprocessing interface - bring your own preprocessing logic
 - ✅ **Flexible Input**: Support for local files and remote URLs
 - ✅ **Batch Processing**: Optimized batching throughout the pipeline
 - ✅ **Vector Database**: Milvus integration with multiple index types (IVF_FLAT, HNSW, FLAT)
@@ -412,6 +413,53 @@ embeddings = client.infer(
 ```
 
 ### Custom Preprocessing
+
+You can now create your own custom preprocessors by implementing the `ImagePreprocessor` protocol:
+
+```python
+from src import ImagePreprocessor, ImageEmbeddingPipeline, ServiceConfig
+import numpy as np
+from typing import Union, List
+
+class MyCustomPreprocessor:
+    """Your custom preprocessor implementation."""
+    
+    def __init__(self, image_size=(224, 224)):
+        self.image_size = image_size
+    
+    def preprocess_single(self, image: Union[np.ndarray, str]) -> np.ndarray:
+        # Your custom preprocessing logic
+        ...
+        return processed_image
+    
+    def preprocess_batch(self, images: List[Union[np.ndarray, str]]) -> np.ndarray:
+        # Your batch preprocessing logic
+        ...
+        return processed_batch
+    
+    def __call__(self, images: Union[str, np.ndarray, List[Union[str, np.ndarray]]]) -> np.ndarray:
+        if isinstance(images, list):
+            return self.preprocess_batch(images)
+        else:
+            result = self.preprocess_single(images)
+            return result[np.newaxis, ...]
+
+# Use your custom preprocessor with the pipeline
+custom_preprocessor = MyCustomPreprocessor(image_size=(256, 256))
+config = ServiceConfig.from_yaml('configs/config.yaml')
+
+pipeline = ImageEmbeddingPipeline(
+    config=config,
+    preprocessor=custom_preprocessor  # Pass your custom preprocessor
+)
+
+# Use the pipeline normally
+embeddings = pipeline.embed_images(image_paths)
+```
+
+For detailed guide and examples, see [Custom Preprocessor Guide](docs/CUSTOM_PREPROCESSOR.md).
+
+**Or use the built-in JAX preprocessor with custom parameters:**
 
 ```python
 from src.preprocess_jax import JAXImagePreprocessor
