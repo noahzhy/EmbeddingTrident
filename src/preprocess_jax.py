@@ -7,15 +7,12 @@ import jax.numpy as jnp
 from jax import jit, vmap
 from typing import List, Tuple, Union, Optional
 import numpy as np
-from PIL import Image
-import io
-import requests
-from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
+from .base_preprocessor import BaseJAXPreprocessor
 
-class JAXImagePreprocessor:
+
+class JAXImagePreprocessor(BaseJAXPreprocessor):
     """
     JAX-accelerated image preprocessing with jit compilation and vectorization.
     
@@ -24,6 +21,7 @@ class JAXImagePreprocessor:
     - Vectorized batch processing with vmap
     - Support for local files and URLs
     - Cached compiled functions for performance
+    - Configurable data format (NHWC or NCHW)
     """
     
     def __init__(
@@ -51,119 +49,27 @@ class JAXImagePreprocessor:
             use_gpu: Whether to use GPU for JAX preprocessing (default: False)
             jax_platform: Specific JAX platform to use ('cpu', 'gpu', 'tpu', or None for auto)
         """
-        self.image_size = image_size
+        # Initialize base class
+        super().__init__(
+            image_size=image_size,
+            use_gpu=use_gpu,
+            jax_platform=jax_platform,
+            max_workers=max_workers,
+        )
+        
+        # Additional configuration specific to this preprocessor
         self.mean = jnp.array(mean, dtype=jnp.float32).reshape(1, 1, 3)
         self.std = jnp.array(std, dtype=jnp.float32).reshape(1, 1, 3)
         self.cache_compiled = cache_compiled
         self.data_format = data_format.upper()
-        self.max_workers = max_workers
-        self.use_gpu = use_gpu
-        self.jax_platform = jax_platform
         
         if self.data_format not in ['NHWC', 'NCHW']:
             raise ValueError(f"data_format must be 'NHWC' or 'NCHW', got {data_format}")
-        
-        # Configure JAX device
-        self._configure_jax_device()
         
         # Pre-compile functions
         if cache_compiled:
             logger.info("Pre-compiling JAX functions...")
             self._warmup()
-    
-    def _configure_jax_device(self) -> None:
-        """
-        Configure JAX to use specified device (CPU/GPU/TPU).
-        
-        Sets up JAX device based on configuration and logs the device being used.
-        Gracefully falls back to CPU if requested device is not available.
-        """
-        try:
-            # Get available devices
-            devices = jax.devices()
-            
-            # Determine target platform
-            target_platform = None
-            if self.jax_platform:
-                target_platform = self.jax_platform.lower()
-            elif self.use_gpu:
-                target_platform = 'gpu'
-            
-            if target_platform:
-                # Try to get devices of the specified type
-                try:
-                    platform_devices = [d for d in devices if d.platform.lower() == target_platform]
-                    if platform_devices:
-                        self.device = platform_devices[0]
-                        logger.info(f"JAX configured to use {target_platform.upper()}: {self.device}")
-                    else:
-                        logger.warning(
-                            f"No {target_platform.upper()} devices found. "
-                            f"Available devices: {[d.platform for d in devices]}. "
-                            f"Falling back to default device."
-                        )
-                        self.device = jax.devices()[0]
-                        logger.info(f"Using default device: {self.device}")
-                except Exception as e:
-                    logger.warning(f"Error selecting {target_platform} device: {e}. Using default device.")
-                    self.device = jax.devices()[0]
-                    logger.info(f"Using default device: {self.device}")
-            else:
-                # Use default device (usually CPU)
-                self.device = jax.devices()[0]
-                logger.info(f"Using default JAX device: {self.device}")
-                
-        except Exception as e:
-            logger.error(f"Error configuring JAX device: {e}. Using default.")
-            self.device = jax.devices()[0]
-            logger.info(f"Using default device: {self.device}")
-    
-    def _to_device(self, array: jnp.ndarray) -> jnp.ndarray:
-        """
-        Transfer array to the configured device.
-        
-        Args:
-            array: JAX array
-            
-        Returns:
-            Array on the configured device
-        """
-        return jax.device_put(array, self.device)
-    
-    def _resize_image_jax(self, image: jnp.ndarray) -> jnp.ndarray:
-        """
-        JIT-compiled image resize using JAX.
-        
-        Args:
-            image: Input image array (H, W, C)
-            
-        Returns:
-            Resized image array
-        """
-        return jax.image.resize(
-            image,
-            shape=(self.image_size[0], self.image_size[1], image.shape[2]),
-            method='bilinear',
-        )
-    
-    def _normalize_image_jax(
-        self,
-        image: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """
-        JIT-compiled image normalization.
-        
-        Args:
-            image: Input image array (H, W, C) in [0, 255]
-            
-        Returns:
-            Normalized image array in [-1, 1] range
-        """
-        # Convert to [0, 1]
-        image = image / 255.0
-        # Normalize
-        image = (image - self.mean) / self.std
-        return image
     
     def _preprocess_single_jax(
         self,
@@ -247,6 +153,119 @@ class JAXImagePreprocessor:
         dummy_batch = self._to_device(dummy_batch)
         batch_fn = self._get_preprocess_batch_vmap()
         _ = batch_fn(dummy_batch)
+        
+        # Warmup transpose functions if using NCHW
+        if self.data_format == 'NCHW':
+            _ = self._transpose_single_nchw(dummy_image)
+            _ = self._transpose_batch_nchw(dummy_batch)
+        
+        logger.info("JAX functions compiled and cached")
+    
+    def preprocess_single(self, image: Union[np.ndarray, str]) -> np.ndarray:
+        """
+        Preprocess a single image.
+        
+        Args:
+            image: Image array or path/URL
+            
+        Returns:
+            Preprocessed image (H, W, C) if NHWC format, or (C, H, W) if NCHW format
+        """
+        if isinstance(image, str):
+            image = self.load_image(image)
+        
+        # Convert to JAX array and place on configured device
+        jax_image = jnp.array(image, dtype=jnp.float32)
+        jax_image = self._to_device(jax_image)
+        
+        # Preprocess with jitted function
+        preprocess_jit = self._get_preprocess_single_jitted()
+        processed = preprocess_jit(jax_image)
+        
+        # Convert to NCHW if requested using JIT-compiled transpose
+        if self.data_format == 'NCHW':
+            processed = self._transpose_single_nchw(processed)
+        
+        # Convert back to numpy
+        return np.array(processed)
+    
+    def preprocess_batch(
+        self,
+        images: List[Union[np.ndarray, str]],
+    ) -> np.ndarray:
+        """
+        Preprocess a batch of images using vmap for parallelization.
+        
+        Args:
+            images: List of image arrays or paths/URLs
+            
+        Returns:
+            Batch of preprocessed images (B, H, W, C) if NHWC format, 
+            or (B, C, H, W) if NCHW format
+        """
+        # Check if we need to load images
+        needs_loading = any(isinstance(img, str) for img in images)
+        
+        if needs_loading:
+            # Separate paths and arrays
+            paths = [img for img in images if isinstance(img, str)]
+            arrays = [img for img in images if not isinstance(img, str)]
+            
+            # Load images in parallel if there are paths
+            if paths:
+                loaded_from_paths = self.load_images_parallel(paths)
+                # Combine with arrays in original order
+                loaded_images = []
+                path_idx = 0
+                array_idx = 0
+                for img in images:
+                    if isinstance(img, str):
+                        loaded_images.append(loaded_from_paths[path_idx])
+                        path_idx += 1
+                    else:
+                        loaded_images.append(arrays[array_idx])
+                        array_idx += 1
+            else:
+                loaded_images = arrays
+        else:
+            loaded_images = images
+        
+        # Stack into batch - pre-allocate for efficiency
+        batch = np.stack(loaded_images, axis=0).astype(np.float32)
+        
+        # Convert to JAX and place on configured device
+        jax_batch = jnp.array(batch)
+        jax_batch = self._to_device(jax_batch)
+        
+        # Vectorized preprocessing using cached vmap
+        batch_fn = self._get_preprocess_batch_vmap()
+        processed_batch = batch_fn(jax_batch)
+        
+        # Convert to NCHW if requested using JIT-compiled transpose
+        if self.data_format == 'NCHW':
+            processed_batch = self._transpose_batch_nchw(processed_batch)
+        
+        # Convert back to numpy
+        return np.array(processed_batch)
+    
+    def __call__(
+        self,
+        images: Union[str, np.ndarray, List[Union[str, np.ndarray]]],
+    ) -> np.ndarray:
+        """
+        Preprocess images (single or batch).
+        
+        Args:
+            images: Single image or list of images (paths/URLs or arrays)
+            
+        Returns:
+            Preprocessed image(s)
+        """
+        if isinstance(images, list):
+            return self.preprocess_batch(images)
+        else:
+            result = self.preprocess_single(images)
+            return result[np.newaxis, ...]  # Add batch dimension
         
         # Warmup transpose functions if using NCHW
         if self.data_format == 'NCHW':

@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Union, Any, Tuple
 from loguru import logger
 import time
 
-from .base_preprocessor import ImagePreprocessor
+from .base_preprocessor import BaseJAXPreprocessor
 from .preprocess_jax import JAXImagePreprocessor
 from .triton_client import TritonClient
 from .milvus_client import MilvusClient
@@ -36,15 +36,17 @@ class ImageEmbeddingPipeline:
     def __init__(
         self, 
         config: Optional[ServiceConfig] = None,
-        preprocessor: Optional[ImagePreprocessor] = None,
+        preprocessor: Optional[BaseJAXPreprocessor] = None,
     ):
         """
         Initialize the pipeline.
         
         Args:
             config: Service configuration
-            preprocessor: Optional custom preprocessor implementing ImagePreprocessor protocol.
+            preprocessor: Optional custom JAX preprocessor inheriting from BaseJAXPreprocessor.
                          If None, uses default JAXImagePreprocessor with config settings.
+                         Custom preprocessors must inherit from BaseJAXPreprocessor to ensure
+                         JAX-based high-performance preprocessing.
         """
         if config is None:
             config = ServiceConfig()
@@ -56,7 +58,14 @@ class ImageEmbeddingPipeline:
         
         # Preprocessor - use custom if provided, otherwise create JAX preprocessor
         if preprocessor is not None:
-            logger.info("Using custom preprocessor")
+            # Validate that the preprocessor inherits from BaseJAXPreprocessor
+            if not isinstance(preprocessor, BaseJAXPreprocessor):
+                raise TypeError(
+                    f"Custom preprocessor must inherit from BaseJAXPreprocessor, "
+                    f"got {type(preprocessor).__name__}. "
+                    f"This ensures JAX-based high-performance preprocessing."
+                )
+            logger.info(f"Using custom preprocessor: {type(preprocessor).__name__}")
             self.preprocessor = preprocessor
         else:
             logger.info("Using default JAXImagePreprocessor")
