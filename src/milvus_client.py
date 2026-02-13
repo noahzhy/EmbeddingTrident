@@ -460,8 +460,8 @@ class MilvusClient:
         embeddings: np.ndarray,
         metadata: Optional[List[Dict[str, Any]]] = None,
         collection_name: Optional[str] = None,
-        auto_flush: bool = True,
-        _async: bool = True,
+        auto_flush: bool = False,
+        _async: bool = False,
     ):
         """
         Insert embeddings into collection.
@@ -471,8 +471,8 @@ class MilvusClient:
             embeddings: Embedding vectors (N, D)
             metadata: Optional metadata for each embedding
             collection_name: Target collection name
-            auto_flush: Whether to flush after insert (default: True)
-            _async: Whether to use async insert (Milvus 2.3+, default: True)
+            auto_flush: Whether to flush after insert (default: False)
+            _async: Whether to use async insert (Milvus 2.3+, default: False)
             
         Returns:
             List of inserted IDs (or MutationFuture if _async=True)
