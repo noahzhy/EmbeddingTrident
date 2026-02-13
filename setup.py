@@ -17,21 +17,21 @@ if requirements_file.exists():
         requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 setup(
-    name="jax-embedding-milvus",
+    name="embedding_trident",
     version="0.1.0",
     description="Production-ready image embedding service with JAX, Triton, and Milvus",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Noah Zhang",
     author_email="noahzhy@users.noreply.github.com",
-    url="https://github.com/noahzhy/jaxEmbeddingMilvus",
+    url="https://github.com/noahzhy/EmbeddingTrident",
     packages=find_packages(where="."),
     package_dir={"": "."},
     install_requires=requirements,
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "jax-embedding=src.cli:main",
+            "embedding-trident=src.cli:main",
         ],
     },
     classifiers=[
@@ -47,7 +47,7 @@ setup(
     ],
     keywords="jax triton milvus embedding vector-search image-processing",
     project_urls={
-        "Bug Reports": "https://github.com/noahzhy/jaxEmbeddingMilvus/issues",
-        "Source": "https://github.com/noahzhy/jaxEmbeddingMilvus",
+        "Bug Reports": "https://github.com/noahzhy/EmbeddingTrident/issues",
+        "Source": "https://github.com/noahzhy/EmbeddingTrident",
     },
 )

@@ -10,6 +10,7 @@ A **production-ready image embedding service** combining:
 
 - ✅ **High-Performance Pipeline**: JIT-compiled JAX preprocessing with vectorized batch processing
 - ✅ **GPU Acceleration**: Optional GPU support for JAX preprocessing (4-5x speedup)
+- ✅ **Custom Preprocessors**: Extensible preprocessing interface - bring your own preprocessing logic
 - ✅ **Flexible Input**: Support for local files and remote URLs
 - ✅ **Batch Processing**: Optimized batching throughout the pipeline
 - ✅ **Vector Database**: Milvus integration with multiple index types (IVF_FLAT, HNSW, FLAT)
@@ -361,6 +362,7 @@ milvus:
   host: "localhost"
   port: 19530
   embedding_dim: 512
+  vector_field_name: "vector"  # Must match your Milvus FLOAT_VECTOR field name
   index_type: "IVF_FLAT"
 
 preprocess:
@@ -378,6 +380,7 @@ export TRITON_OUTPUT_NAME="output"
 export MILVUS_HOST="localhost"
 export MILVUS_PORT="19530"
 export MILVUS_EMBEDDING_DIM="512"
+export MILVUS_VECTOR_FIELD_NAME="vector"
 ```
 
 ## 🔧 Advanced Usage
@@ -412,6 +415,47 @@ embeddings = client.infer(
 ```
 
 ### Custom Preprocessing
+
+Custom preprocessors must inherit from `BaseJAXPreprocessor` for high-performance JAX-based preprocessing:
+
+```python
+from src import BaseJAXPreprocessor, ImageEmbeddingPipeline, ServiceConfig
+import jax
+import jax.numpy as jnp
+
+class MyCustomPreprocessor(BaseJAXPreprocessor):
+    """Your custom JAX-based preprocessor."""
+    
+    def __init__(self, image_size=(224, 224), **kwargs):
+        super().__init__(image_size=image_size, **kwargs)
+        # Your custom initialization
+    
+    def _preprocess_single_jax(self, image: jnp.ndarray) -> jnp.ndarray:
+        """JAX-based preprocessing (automatically JIT-compiled and vectorized)."""
+        # Use JAX operations for best performance
+        resized = jax.image.resize(image, (*self.image_size, 3), method='bilinear')
+        normalized = resized / 255.0
+        return normalized
+
+# Use your custom preprocessor with the pipeline
+custom_preprocessor = MyCustomPreprocessor(
+    image_size=(256, 256),
+    use_gpu=True  # Enable GPU acceleration
+)
+config = ServiceConfig.from_yaml('configs/config.yaml')
+
+pipeline = ImageEmbeddingPipeline(
+    config=config,
+    preprocessor=custom_preprocessor  # Must inherit from BaseJAXPreprocessor
+)
+
+# Use the pipeline normally
+embeddings = pipeline.embed_images(image_paths)
+```
+
+For detailed guide and examples, see [Custom JAX Preprocessor Guide](docs/CUSTOM_JAX_PREPROCESSOR.md).
+
+**Or use the built-in JAX preprocessor with custom parameters:**
 
 ```python
 from src.preprocess_jax import JAXImagePreprocessor

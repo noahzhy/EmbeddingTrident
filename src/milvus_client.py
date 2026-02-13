@@ -30,6 +30,7 @@ class MilvusClient:
     - Collection lifecycle management
     - Batch insert optimization
     - Multiple index types (IVF_FLAT, HNSW, FLAT)
+    - GPU-accelerated index types (GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
     - Filtered search support
     - Automatic flushing and loading
     """
@@ -40,12 +41,24 @@ class MilvusClient:
         port: int = 19530,
         collection_name: str = "image_embeddings",
         embedding_dim: int = 768,
+        vector_field_name: str = "vector",
         index_type: str = "IVF_FLAT",
         metric_type: str = "IP",
         nlist: int = 128,
         nprobe: int = 16,
         M: int = 16,
         efConstruction: int = 256,
+        # GPU index parameters
+        intermediate_graph_degree: int = 64,
+        graph_degree: int = 32,
+        itopk_size: int = 64,
+        search_width: int = 4,
+        min_iterations: int = 0,
+        max_iterations: int = 0,
+        team_size: int = 0,
+        # GPU_IVF_PQ parameters
+        m: int = 8,
+        nbits: int = 8,
         alias: str = "default",
     ):
         """
@@ -56,24 +69,46 @@ class MilvusClient:
             port: Milvus server port
             collection_name: Default collection name
             embedding_dim: Embedding vector dimension
-            index_type: Index type (IVF_FLAT, HNSW, FLAT)
+            vector_field_name: Vector field name in collection schema
+            index_type: Index type (IVF_FLAT, HNSW, FLAT, GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
             metric_type: Distance metric (L2, IP, COSINE)
-            nlist: Number of cluster units (for IVF_FLAT)
-            nprobe: Number of units to query (for IVF_FLAT)
+            nlist: Number of cluster units (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
+            nprobe: Number of units to query (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
             M: Maximum degree of node (for HNSW)
             efConstruction: Construction time/accuracy tradeoff (for HNSW)
+            intermediate_graph_degree: Intermediate graph degree (for GPU_CAGRA)
+            graph_degree: Graph degree (for GPU_CAGRA)
+            itopk_size: itopk size for search (for GPU_CAGRA)
+            search_width: Search width (for GPU_CAGRA)
+            min_iterations: Min iterations (for GPU_CAGRA)
+            max_iterations: Max iterations (for GPU_CAGRA)
+            team_size: Team size (for GPU_CAGRA)
+            m: Number of subquantizers (for GPU_IVF_PQ)
+            nbits: Bits per subquantizer (for GPU_IVF_PQ)
             alias: Connection alias
         """
         self.host = host
         self.port = port
         self.default_collection_name = collection_name
         self.embedding_dim = embedding_dim
+        self.vector_field_name = vector_field_name
         self.index_type = index_type
         self.metric_type = metric_type
         self.nlist = nlist
         self.nprobe = nprobe
         self.M = M
         self.efConstruction = efConstruction
+        # GPU index parameters
+        self.intermediate_graph_degree = intermediate_graph_degree
+        self.graph_degree = graph_degree
+        self.itopk_size = itopk_size
+        self.search_width = search_width
+        self.min_iterations = min_iterations
+        self.max_iterations = max_iterations
+        self.team_size = team_size
+        # GPU_IVF_PQ parameters
+        self.m = m
+        self.nbits = nbits
         self.alias = alias
         
         # Connect to Milvus
@@ -166,7 +201,7 @@ class MilvusClient:
                     auto_id=auto_id,
                 ),
                 FieldSchema(
-                    name="vector",
+                    name=self.vector_field_name,
                     dtype=DataType.FLOAT_VECTOR,
                     dim=dim,
                 ),
@@ -213,7 +248,7 @@ class MilvusClient:
             collection: Collection object
         """
         try:
-            # Define index parameters
+            # Define index parameters based on index type
             if self.index_type == "IVF_FLAT":
                 index_params = {
                     "metric_type": self.metric_type,
@@ -235,12 +270,47 @@ class MilvusClient:
                     "index_type": "FLAT",
                     "params": {},
                 }
+            elif self.index_type == "GPU_CAGRA":
+                # GPU_CAGRA: GPU-accelerated graph-based index
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_CAGRA",
+                    "params": {
+                        "intermediate_graph_degree": self.intermediate_graph_degree,
+                        "graph_degree": self.graph_degree,
+                    },
+                }
+            elif self.index_type == "GPU_IVF_FLAT":
+                # GPU_IVF_FLAT: GPU-accelerated IVF index with flat storage
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_IVF_FLAT",
+                    "params": {"nlist": self.nlist},
+                }
+            elif self.index_type == "GPU_IVF_PQ":
+                # GPU_IVF_PQ: GPU-accelerated IVF index with product quantization
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_IVF_PQ",
+                    "params": {
+                        "nlist": self.nlist,
+                        "m": self.m,  # Number of subquantizers (configurable)
+                        "nbits": self.nbits,  # Bits per subquantizer (configurable)
+                    },
+                }
+            elif self.index_type == "GPU_BRUTE_FORCE":
+                # GPU_BRUTE_FORCE: GPU-accelerated brute-force search
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_BRUTE_FORCE",
+                    "params": {},
+                }
             else:
                 raise ValueError(f"Unsupported index type: {self.index_type}")
             
             # Create index
             collection.create_index(
-                field_name="embedding",
+                field_name=self.vector_field_name,
                 index_params=index_params,
             )
             
@@ -341,13 +411,80 @@ class MilvusClient:
             
             # Get collection
             collection = self.get_collection(collection_name)
+            schema_fields = list(collection.schema.fields)
             
-            # Prepare data
-            entities = [
-                ids,
-                embeddings.tolist(),
-                metadata,
-            ]
+            # Resolve field names from actual collection schema
+            vector_field = next(
+                (
+                    field for field in schema_fields
+                    if getattr(field, "name", None) == self.vector_field_name
+                ),
+                None,
+            )
+            if vector_field is None:
+                vector_field = next(
+                    (
+                        field for field in schema_fields
+                        if getattr(field, "dtype", None) == DataType.FLOAT_VECTOR
+                    ),
+                    None,
+                )
+            
+            if vector_field is None:
+                raise ValueError(
+                    f"No FLOAT_VECTOR field found in collection '{collection_name}'"
+                )
+            
+            if vector_field.name != self.vector_field_name:
+                logger.warning(
+                    f"Configured vector field '{self.vector_field_name}' not found in "
+                    f"collection '{collection_name}', using '{vector_field.name}' instead"
+                )
+            
+            # Build insert payload by schema order (excluding auto_id primary field)
+            entities: List[Any] = []
+            vector_values = embeddings.tolist()
+            metadata_field_exists = False
+            
+            for field in schema_fields:
+                field_name = getattr(field, "name", None)
+                is_primary = bool(getattr(field, "is_primary", False))
+                auto_id = bool(getattr(field, "auto_id", False))
+                
+                if is_primary and auto_id:
+                    continue
+                
+                if field_name == vector_field.name:
+                    entities.append(vector_values)
+                    continue
+                
+                if field_name == "metadata":
+                    metadata_field_exists = True
+                    entities.append(metadata)
+                    continue
+                
+                if is_primary:
+                    if getattr(field, "dtype", None) == DataType.INT64:
+                        try:
+                            entities.append([int(item) for item in ids])
+                        except Exception as conversion_error:
+                            raise ValueError(
+                                f"Primary key field '{field_name}' expects INT64 values, "
+                                f"but got non-integer IDs"
+                            ) from conversion_error
+                    else:
+                        entities.append(ids)
+                    continue
+                
+                raise ValueError(
+                    f"Unsupported required field '{field_name}' in collection schema. "
+                    f"Only primary key, vector, and metadata fields are currently supported."
+                )
+            
+            if metadata is not None and not metadata_field_exists:
+                logger.warning(
+                    f"Collection '{collection_name}' has no 'metadata' field; provided metadata will be ignored"
+                )
             
             # Insert
             insert_result = collection.insert(entities)
@@ -357,13 +494,16 @@ class MilvusClient:
             
             insert_time = time.time() - start_time
             throughput = len(ids) / insert_time
+            inserted_ids = ids
+            if hasattr(insert_result, "primary_keys") and insert_result.primary_keys:
+                inserted_ids = [str(primary_key) for primary_key in insert_result.primary_keys]
             
             logger.info(
-                f"Inserted {len(ids)} embeddings in {insert_time:.3f}s "
+                f"Inserted {len(inserted_ids)} embeddings in {insert_time:.3f}s "
                 f"({throughput:.0f} vectors/sec)"
             )
             
-            return ids
+            return inserted_ids
             
         except Exception as e:
             logger.error(f"Failed to insert embeddings: {e}")
@@ -462,18 +602,36 @@ class MilvusClient:
             # Get collection
             collection = self.get_collection(collection_name)
             
-            # Define search parameters
+            # Define search parameters based on index type
             search_params = {"metric_type": self.metric_type}
             
             if self.index_type == "IVF_FLAT":
                 search_params["params"] = {"nprobe": self.nprobe}
             elif self.index_type == "HNSW":
                 search_params["params"] = {"ef": 64}
+            elif self.index_type == "GPU_CAGRA":
+                # GPU_CAGRA search parameters
+                search_params["params"] = {
+                    "itopk_size": self.itopk_size,
+                    "search_width": self.search_width,
+                    "min_iterations": self.min_iterations,
+                    "max_iterations": self.max_iterations,
+                    "team_size": self.team_size,
+                }
+            elif self.index_type == "GPU_IVF_FLAT":
+                # GPU_IVF_FLAT search parameters
+                search_params["params"] = {"nprobe": self.nprobe}
+            elif self.index_type == "GPU_IVF_PQ":
+                # GPU_IVF_PQ search parameters
+                search_params["params"] = {"nprobe": self.nprobe}
+            elif self.index_type == "GPU_BRUTE_FORCE":
+                # GPU_BRUTE_FORCE doesn't need additional params
+                search_params["params"] = {}
             
             # Search
             results = collection.search(
                 data=query_embedding.tolist(),
-                anns_field="embedding",
+                anns_field=self.vector_field_name,
                 param=search_params,
                 limit=topk,
                 expr=filter_expr,

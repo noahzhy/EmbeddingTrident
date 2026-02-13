@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Union, Any, Tuple
 from loguru import logger
 import time
 
+from .base_preprocessor import BaseJAXPreprocessor
 from .preprocess_jax import JAXImagePreprocessor
 from .triton_client import TritonClient
 from .milvus_client import MilvusClient
@@ -32,12 +33,20 @@ class ImageEmbeddingPipeline:
     - Minimized data transfer overhead
     """
     
-    def __init__(self, config: Optional[ServiceConfig] = None):
+    def __init__(
+        self, 
+        config: Optional[ServiceConfig] = None,
+        preprocessor: Optional[BaseJAXPreprocessor] = None,
+    ):
         """
         Initialize the pipeline.
         
         Args:
             config: Service configuration
+            preprocessor: Optional custom JAX preprocessor inheriting from BaseJAXPreprocessor.
+                         If None, uses default JAXImagePreprocessor with config settings.
+                         Custom preprocessors must inherit from BaseJAXPreprocessor to ensure
+                         JAX-based high-performance preprocessing.
         """
         if config is None:
             config = ServiceConfig()
@@ -47,17 +56,29 @@ class ImageEmbeddingPipeline:
         # Initialize components
         logger.info("Initializing image embedding pipeline...")
         
-        # JAX preprocessor
-        self.preprocessor = JAXImagePreprocessor(
-            image_size=config.preprocess.image_size,
-            mean=config.preprocess.mean,
-            std=config.preprocess.std,
-            cache_compiled=config.cache_compiled_functions,
-            data_format=config.preprocess.data_format,
-            max_workers=config.preprocess.num_workers,
-            use_gpu=config.preprocess.use_gpu,
-            jax_platform=config.preprocess.jax_platform,
-        )
+        # Preprocessor - use custom if provided, otherwise create JAX preprocessor
+        if preprocessor is not None:
+            # Validate that the preprocessor inherits from BaseJAXPreprocessor
+            if not isinstance(preprocessor, BaseJAXPreprocessor):
+                raise TypeError(
+                    f"Custom preprocessor must inherit from BaseJAXPreprocessor, "
+                    f"got {type(preprocessor).__name__}. "
+                    f"This ensures JAX-based high-performance preprocessing."
+                )
+            logger.info(f"Using custom preprocessor: {type(preprocessor).__name__}")
+            self.preprocessor = preprocessor
+        else:
+            logger.info("Using default JAXImagePreprocessor")
+            self.preprocessor = JAXImagePreprocessor(
+                image_size=config.preprocess.image_size,
+                mean=config.preprocess.mean,
+                std=config.preprocess.std,
+                cache_compiled=config.cache_compiled_functions,
+                data_format=config.preprocess.data_format,
+                max_workers=config.preprocess.num_workers,
+                use_gpu=config.preprocess.use_gpu,
+                jax_platform=config.preprocess.jax_platform,
+            )
         
         # Triton client
         self.triton_client = TritonClient(
@@ -78,6 +99,7 @@ class ImageEmbeddingPipeline:
             port=config.milvus.port,
             collection_name=config.milvus.collection_name,
             embedding_dim=config.milvus.embedding_dim,
+            vector_field_name=config.milvus.vector_field_name,
             index_type=config.milvus.index_type,
             metric_type=config.milvus.metric_type,
             nlist=config.milvus.nlist,

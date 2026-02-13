@@ -16,11 +16,13 @@ milvus:
   port: 19530
   collection_name: "test_collection"
   embedding_dim: 768
-  index_type: "GPU_IVF_FLAT"  # IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
+  vector_field_name: "vector"
+  index_type: "GPU_IVF_PQ"  # IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT, GPU_IVF_PQ
   metric_type: "IP"  # L2, IP, COSINE
-  nlist: 128
-  nprobe: 16
-  M: 16
+  nlist: 2048
+  nprobe: 32
+  M: 32
+  nbits: 8
   efConstruction: 256
 
 # Preprocessing Configuration

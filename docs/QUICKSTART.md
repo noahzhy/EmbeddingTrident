@@ -71,6 +71,21 @@ cp configs/config.yaml config.yaml
 # Update Triton and Milvus URLs if needed
 ```
 
+Example `config.yaml` (Milvus section):
+
+```yaml
+milvus:
+  host: "localhost"
+  port: 19530
+  collection_name: "demo"
+  embedding_dim: 512
+  vector_field_name: "vector"  # Must match your Milvus FLOAT_VECTOR field name
+  index_type: "IVF_FLAT"
+  metric_type: "IP"
+  nlist: 128
+  nprobe: 16
+```
+
 ### 4. Run API Server
 
 ```bash
