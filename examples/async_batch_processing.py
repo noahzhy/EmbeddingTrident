@@ -78,87 +78,87 @@ def compare_sync_vs_async(
         image_paths = generate_dummy_images(num_images, temp_dir)
         ids = [f"img_{i:06d}" for i in range(num_images)]
         metadata = [{"batch": i // batch_size} for i in range(num_images)]
-    
-    # Test 1: Synchronous pipeline (baseline)
-    collection_name_sync = "sync_benchmark"
-    try:
+        
+        # Test 1: Synchronous pipeline (baseline)
+        collection_name_sync = "sync_benchmark"
+        try:
+            pipeline.delete_collection(collection_name_sync)
+        except:
+            pass
+        
+        pipeline.create_collection(collection_name_sync, dim=pipeline.config.milvus.embedding_dim)
+        
+        logger.info("\n--- Test 1: Synchronous Pipeline ---")
+        start_time = time.time()
+        pipeline.insert_images(
+            inputs=image_paths,
+            ids=ids,
+            metadata=metadata,
+            collection_name=collection_name_sync,
+            batch_size=batch_size,
+        )
+        sync_time = time.time() - start_time
+        sync_throughput = num_images / sync_time
+        
+        logger.info(f"Sync Pipeline Performance:")
+        logger.info(f"  Total time: {sync_time:.3f}s")
+        logger.info(f"  Throughput: {sync_throughput:.1f} images/sec")
+        
+        # Test 2: Asynchronous pipeline (optimized)
+        collection_name_async = "async_benchmark"
+        try:
+            pipeline.delete_collection(collection_name_async)
+        except:
+            pass
+        
+        pipeline.create_collection(collection_name_async, dim=pipeline.config.milvus.embedding_dim)
+        
+        logger.info("\n--- Test 2: Asynchronous Pipeline ---")
+        start_time = time.time()
+        pipeline.insert_images_async(
+            inputs=image_paths,
+            ids=ids,
+            metadata=metadata,
+            collection_name=collection_name_async,
+            batch_size=batch_size,
+        )
+        async_time = time.time() - start_time
+        async_throughput = num_images / async_time
+        
+        logger.info(f"Async Pipeline Performance:")
+        logger.info(f"  Total time: {async_time:.3f}s")
+        logger.info(f"  Throughput: {async_throughput:.1f} images/sec")
+        
+        # Compare
+        speedup = sync_time / async_time
+        logger.info(f"\n{'='*80}")
+        logger.info(f"RESULTS SUMMARY")
+        logger.info(f"{'='*80}")
+        logger.info(f"Synchronous:  {sync_time:.3f}s ({sync_throughput:.1f} images/sec)")
+        logger.info(f"Asynchronous: {async_time:.3f}s ({async_throughput:.1f} images/sec)")
+        logger.info(f"Speedup:      {speedup:.2f}x")
+        logger.info(f"{'='*80}\n")
+        
+        # Verify data integrity
+        logger.info("Verifying data integrity...")
+        sync_stats = pipeline.get_collection_stats(collection_name_sync)
+        async_stats = pipeline.get_collection_stats(collection_name_async)
+        
+        logger.info(f"Sync collection: {sync_stats['num_entities']} entities")
+        logger.info(f"Async collection: {async_stats['num_entities']} entities")
+        
+        if sync_stats['num_entities'] == async_stats['num_entities'] == num_images:
+            logger.info("✓ Data integrity verified: All images inserted correctly")
+        else:
+            logger.error("✗ Data integrity issue: Entity counts don't match")
+        
+        # Cleanup
+        logger.info("\nCleaning up...")
         pipeline.delete_collection(collection_name_sync)
-    except:
-        pass
-    
-    pipeline.create_collection(collection_name_sync, dim=pipeline.config.milvus.embedding_dim)
-    
-    logger.info("\n--- Test 1: Synchronous Pipeline ---")
-    start_time = time.time()
-    pipeline.insert_images(
-        inputs=image_paths,
-        ids=ids,
-        metadata=metadata,
-        collection_name=collection_name_sync,
-        batch_size=batch_size,
-    )
-    sync_time = time.time() - start_time
-    sync_throughput = num_images / sync_time
-    
-    logger.info(f"Sync Pipeline Performance:")
-    logger.info(f"  Total time: {sync_time:.3f}s")
-    logger.info(f"  Throughput: {sync_throughput:.1f} images/sec")
-    
-    # Test 2: Asynchronous pipeline (optimized)
-    collection_name_async = "async_benchmark"
-    try:
         pipeline.delete_collection(collection_name_async)
-    except:
-        pass
-    
-    pipeline.create_collection(collection_name_async, dim=pipeline.config.milvus.embedding_dim)
-    
-    logger.info("\n--- Test 2: Asynchronous Pipeline ---")
-    start_time = time.time()
-    pipeline.insert_images_async(
-        inputs=image_paths,
-        ids=ids,
-        metadata=metadata,
-        collection_name=collection_name_async,
-        batch_size=batch_size,
-    )
-    async_time = time.time() - start_time
-    async_throughput = num_images / async_time
-    
-    logger.info(f"Async Pipeline Performance:")
-    logger.info(f"  Total time: {async_time:.3f}s")
-    logger.info(f"  Throughput: {async_throughput:.1f} images/sec")
-    
-    # Compare
-    speedup = sync_time / async_time
-    logger.info(f"\n{'='*80}")
-    logger.info(f"RESULTS SUMMARY")
-    logger.info(f"{'='*80}")
-    logger.info(f"Synchronous:  {sync_time:.3f}s ({sync_throughput:.1f} images/sec)")
-    logger.info(f"Asynchronous: {async_time:.3f}s ({async_throughput:.1f} images/sec)")
-    logger.info(f"Speedup:      {speedup:.2f}x")
-    logger.info(f"{'='*80}\n")
-    
-    # Verify data integrity
-    logger.info("Verifying data integrity...")
-    sync_stats = pipeline.get_collection_stats(collection_name_sync)
-    async_stats = pipeline.get_collection_stats(collection_name_async)
-    
-    logger.info(f"Sync collection: {sync_stats['num_entities']} entities")
-    logger.info(f"Async collection: {async_stats['num_entities']} entities")
-    
-    if sync_stats['num_entities'] == async_stats['num_entities'] == num_images:
-        logger.info("✓ Data integrity verified: All images inserted correctly")
-    else:
-        logger.error("✗ Data integrity issue: Entity counts don't match")
-    
-    # Cleanup
-    logger.info("\nCleaning up...")
-    pipeline.delete_collection(collection_name_sync)
-    pipeline.delete_collection(collection_name_async)
-    
-    logger.info("Benchmark complete!")
-    
+        
+        logger.info("Benchmark complete!")
+        
     finally:
         # Remove test images
         if os.path.exists(temp_dir):
