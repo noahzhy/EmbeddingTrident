@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .base_preprocessor import BaseJAXPreprocessor
 from .preprocess_jax import JAXImagePreprocessor
+from .streaming_preprocessor import StreamingMultiprocessPreprocessor
 from .triton_client import TritonClient
 from .milvus_client import MilvusClient
 from .config import ServiceConfig
@@ -483,6 +484,280 @@ class ImageEmbeddingPipeline:
         
         logger.info(
             f"Async pipeline: Inserted {len(ids)} images in {total_time:.3f}s "
+            f"({throughput:.1f} images/sec)"
+        )
+        
+        return ids
+    
+    def insert_images_streaming(
+        self,
+        inputs: List[str],
+        ids: List[str],
+        metadata: Optional[List[Dict[str, Any]]] = None,
+        collection_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        num_preprocess_workers: Optional[int] = None,
+        embedding_workers: Optional[int] = None,
+        insert_batch_size: Optional[int] = None,
+        queue_maxsize: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Extract embeddings and insert into Milvus using streaming multiprocessing preprocessing.
+        
+        This method uses multiprocessing to parallelize preprocessing across multiple CPU cores,
+        significantly improving throughput for I/O-bound and CPU-bound preprocessing operations.
+        
+        Architecture:
+            [Preprocessing Workers (multiprocessing)] -> Preprocessed Queue -> 
+            [Embedding Workers (gevent)] -> Embedding Queue -> 
+            [Milvus Inserter (gevent)]
+        
+        This approach provides:
+        1. Parallel preprocessing across multiple CPU cores (multiprocessing)
+        2. Streaming results to avoid memory buildup
+        3. Async embedding generation and database insertion (gevent)
+        4. Maximum hardware utilization (CPU + GPU + Database)
+        
+        Args:
+            inputs: List of image paths or URLs
+            ids: List of unique IDs for images
+            metadata: Optional metadata for each image
+            collection_name: Target collection name
+            batch_size: Batch size for preprocessing and embedding
+            num_preprocess_workers: Number of preprocessing worker processes (default: CPU count)
+            embedding_workers: Number of embedding worker greenlets (default: from config)
+            insert_batch_size: Batch size for Milvus insertion (default: from config)
+            queue_maxsize: Maximum size of queues (default: from config)
+            
+        Returns:
+            List of inserted IDs
+        """
+        if len(inputs) != len(ids):
+            raise ValueError("Number of inputs must match number of IDs")
+        
+        # Use config defaults if not provided
+        if batch_size is None:
+            batch_size = self.config.preprocess.batch_size
+        if num_preprocess_workers is None:
+            import multiprocessing as mp
+            num_preprocess_workers = mp.cpu_count()
+        if embedding_workers is None:
+            embedding_workers = self.config.async_pipeline.embedding_workers
+        if insert_batch_size is None:
+            insert_batch_size = self.config.async_pipeline.insert_batch_size
+        if queue_maxsize is None:
+            queue_maxsize = self.config.async_pipeline.queue_maxsize
+        
+        start_time = time.time()
+        
+        # Get collection name
+        collection_name = collection_name or self.milvus_client.default_collection_name
+        
+        # OPTIMIZATION 1: Drop index before bulk insertion to improve performance
+        logger.info(f"Dropping index from collection '{collection_name}' for bulk insertion")
+        try:
+            self.milvus_client.release_collection(collection_name)
+            logger.debug(f"Collection '{collection_name}' released.")
+            self.milvus_client.drop_index(collection_name)
+        except Exception as e:
+            logger.warning(f"Could not drop index (may not exist): {e}")
+        
+        # Create streaming preprocessor
+        logger.info(
+            f"Creating streaming preprocessor with {num_preprocess_workers} workers"
+        )
+        
+        # Get preprocessor kwargs from current preprocessor
+        preprocessor_kwargs = {
+            'image_size': self.preprocessor.image_size,
+            'cache_compiled': getattr(self.preprocessor, 'cache_compiled', True),
+            'data_format': getattr(self.preprocessor, 'data_format', 'NHWC'),
+            'max_workers': getattr(self.preprocessor, 'max_workers', 4),
+            'use_gpu': getattr(self.preprocessor, 'use_gpu', False),
+            'jax_platform': getattr(self.preprocessor, 'jax_platform', None),
+        }
+        
+        # Add mean and std if available (for JAXImagePreprocessor)
+        if hasattr(self.preprocessor, 'mean'):
+            import jax.numpy as jnp
+            import numpy as np
+            # Convert JAX arrays to Python lists/tuples
+            mean = self.preprocessor.mean
+            std = self.preprocessor.std
+            if isinstance(mean, jnp.ndarray):
+                mean = np.array(mean).flatten().tolist()
+            if isinstance(std, jnp.ndarray):
+                std = np.array(std).flatten().tolist()
+            preprocessor_kwargs['mean'] = tuple(mean)
+            preprocessor_kwargs['std'] = tuple(std)
+        
+        streaming_preprocessor = StreamingMultiprocessPreprocessor(
+            num_workers=num_preprocess_workers,
+            batch_size=batch_size,
+            queue_maxsize=queue_maxsize,
+            preprocessor_class=type(self.preprocessor),
+            preprocessor_kwargs=preprocessor_kwargs,
+        )
+        
+        # Queues for async pipeline
+        embedding_queue = queue.Queue(maxsize=queue_maxsize)
+        
+        # Sentinel value to signal completion
+        SENTINEL = object()
+        
+        # Shared state
+        error_container = []
+        
+        # Start streaming preprocessor
+        streaming_preprocessor.start()
+        
+        try:
+            # Embedding workers: Generate embeddings from preprocessed data
+            def embedding_worker(worker_id):
+                try:
+                    logger.info(f"Embedding worker {worker_id} started")
+                    processed_count = 0
+                    
+                    # Process streaming results from preprocessor
+                    for batch_result in streaming_preprocessor.preprocess_stream(
+                        inputs, ids=ids, metadata=metadata, batch_size=batch_size
+                    ):
+                        # Generate embeddings
+                        embeddings = self.triton_client.infer(
+                            batch_result['preprocessed'],
+                            normalize=True,
+                        )
+                        
+                        # Put in queue for inserter
+                        embedding_queue.put({
+                            'embeddings': embeddings,
+                            'ids': batch_result['ids'],
+                            'metadata': batch_result['metadata'],
+                            'batch_idx': batch_result['batch_idx'],
+                        })
+                        
+                        processed_count += len(batch_result['ids'])
+                        logger.debug(
+                            f"Embedding worker {worker_id}: processed batch "
+                            f"{batch_result['batch_idx']}, embeddings shape={embeddings.shape}"
+                        )
+                    
+                    logger.info(
+                        f"Embedding worker {worker_id}: completed {processed_count} images"
+                    )
+                except Exception as e:
+                    logger.error(f"Embedding worker {worker_id} error: {e}")
+                    error_container.append(e)
+                finally:
+                    # Signal completion by putting sentinel in embedding queue
+                    embedding_queue.put(SENTINEL)
+            
+            # Milvus inserter: Batch insert embeddings asynchronously
+            def milvus_inserter():
+                try:
+                    logger.info(f"Milvus inserter started with batch size {insert_batch_size}")
+                    batch_embeddings = []
+                    batch_ids_list = []
+                    batch_metadata_list = []
+                    inserted_count = 0
+                    sentinels_received = 0
+                    
+                    while sentinels_received < embedding_workers:
+                        item = embedding_queue.get()
+                        
+                        # Check for sentinel
+                        if item is SENTINEL:
+                            sentinels_received += 1
+                            logger.info(f"Milvus inserter: received sentinel {sentinels_received}/{embedding_workers}")
+                            
+                            # Insert any remaining embeddings
+                            if batch_embeddings:
+                                combined_embeddings = np.concatenate(batch_embeddings, axis=0)
+                                combined_ids = [id for sublist in batch_ids_list for id in sublist]
+                                combined_metadata = [m for sublist in batch_metadata_list for m in (sublist or [])]
+                                
+                                self.milvus_client.insert_embeddings(
+                                    ids=combined_ids,
+                                    embeddings=combined_embeddings,
+                                    metadata=combined_metadata if combined_metadata else None,
+                                    collection_name=collection_name,
+                                )
+                                inserted_count += len(combined_ids)
+                                logger.info(f"Milvus inserter: inserted final batch of {len(combined_ids)} embeddings, total={inserted_count}")
+                                
+                                batch_embeddings = []
+                                batch_ids_list = []
+                                batch_metadata_list = []
+                            
+                            continue
+                        
+                        # Accumulate batch
+                        batch_embeddings.append(item['embeddings'])
+                        batch_ids_list.append(item['ids'])
+                        batch_metadata_list.append(item['metadata'])
+                        
+                        current_batch_size = sum(len(ids) for ids in batch_ids_list)
+                        
+                        # Insert when batch is full
+                        if current_batch_size >= insert_batch_size:
+                            combined_embeddings = np.concatenate(batch_embeddings, axis=0)
+                            combined_ids = [id for sublist in batch_ids_list for id in sublist]
+                            combined_metadata = [m for sublist in batch_metadata_list for m in (sublist or [])]
+                            
+                            self.milvus_client.insert_embeddings(
+                                ids=combined_ids,
+                                embeddings=combined_embeddings,
+                                metadata=combined_metadata if combined_metadata else None,
+                                collection_name=collection_name,
+                            )
+                            inserted_count += len(combined_ids)
+                            logger.debug(f"Milvus inserter: inserted batch of {len(combined_ids)} embeddings, total={inserted_count}")
+                            
+                            batch_embeddings = []
+                            batch_ids_list = []
+                            batch_metadata_list = []
+                    
+                    logger.info(f"Milvus inserter complete: total inserted {inserted_count}")
+                except Exception as e:
+                    logger.error(f"Milvus inserter error: {e}")
+                    error_container.append(e)
+            
+            # Start greenlets
+            # Note: We use only 1 embedding worker since the streaming preprocessor
+            # already handles parallelization. Multiple embedding workers would just
+            # add complexity without benefit in this architecture.
+            embedding_workers = 1
+            embedding_greenlets = [
+                gevent.spawn(embedding_worker, i)
+                for i in range(embedding_workers)
+            ]
+            inserter_greenlet = gevent.spawn(milvus_inserter)
+            
+            # Wait for all greenlets to complete
+            gevent.joinall(embedding_greenlets + [inserter_greenlet])
+            logger.debug("All greenlets completed")
+            
+        finally:
+            # Always stop the streaming preprocessor
+            streaming_preprocessor.stop()
+        
+        # Check for errors
+        if error_container:
+            raise RuntimeError(f"Streaming pipeline failed: {error_container[0]}")
+        
+        # OPTIMIZATION 2: Flush once at the end instead of after each insert
+        logger.info(f"Flushing collection '{collection_name}' after bulk insertion")
+        self.milvus_client.flush_collection(collection_name)
+        
+        # OPTIMIZATION 1: Recreate index after bulk insertion
+        logger.info(f"Creating index on collection '{collection_name}' after bulk insertion")
+        self.milvus_client.create_index(collection_name)
+        
+        total_time = time.time() - start_time
+        throughput = len(inputs) / total_time
+        
+        logger.info(
+            f"Streaming pipeline: Inserted {len(ids)} images in {total_time:.3f}s "
             f"({throughput:.1f} images/sec)"
         )
         
