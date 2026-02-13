@@ -46,11 +46,11 @@ collections:
       index_type: "GPU_IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
       metric_type: "IP"  # Options: L2, IP, COSINE
       params:
-        nlist: 128  # for IVF_FLAT
+        nlist: 2048  # for IVF_FLAT
         # M: 16  # for HNSW
         # efConstruction: 256  # for HNSW
     search_params:
-      nprobe: 16  # for IVF_FLAT
+      nprobe: 32  # for IVF_FLAT
       # ef: 64  # for HNSW
 
 # Alternative HNSW Configuration

@@ -160,7 +160,7 @@ def main():
             return
         
         # Run benchmarks with different batch sizes
-        for batch_size in [8, 16, 32, 64]:
+        for batch_size in [8, 16, 32]:
             logger.info(f"\n{'='*60}")
             logger.info(f"Batch size: {batch_size}")
             logger.info(f"{'='*60}\n")
@@ -168,7 +168,7 @@ def main():
             try:
                 benchmark_pipeline(
                     pipeline,
-                    num_images=100,
+                    num_images=1000,
                     batch_size=batch_size,
                 )
             except Exception as e:

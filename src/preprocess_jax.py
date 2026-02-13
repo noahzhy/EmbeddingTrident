@@ -75,24 +75,35 @@ class JAXImagePreprocessor(BaseJAXPreprocessor):
         self,
         image: jnp.ndarray,
     ) -> jnp.ndarray:
-        """
-        JIT-compiled single image preprocessing pipeline.
-        
-        Args:
-            image: Input image (H, W, C)
-            
-        Returns:
-            Preprocessed image
-        """
-        # Resize
+
+        image = image.astype(jnp.float32)
+        H, W = image.shape[:2]
+        S_h, S_w = self.image_size
+        C = image.shape[2]
         resized = jax.image.resize(
             image,
-            shape=(self.image_size[0], self.image_size[1], image.shape[2]),
-            method='bilinear',
+            (S_h, S_w, C),
+            method="bilinear",
         )
-        # Normalize
-        normalized = (resized / 255.0 - self.mean) / self.std
-        return normalized
+
+        scale = jnp.minimum(S_h / H, S_w / W)
+        valid_h = jnp.maximum((H * scale).astype(jnp.int32), 1)
+        valid_w = jnp.maximum((W * scale).astype(jnp.int32), 1)
+        top = (S_h - valid_h) // 2
+        left = (S_w - valid_w) // 2
+
+        y = jnp.arange(S_h)[:, None]
+        x = jnp.arange(S_w)[None, :]
+
+        mask_h = (y >= top) & (y < top + valid_h)
+        mask_w = (x >= left) & (x < left + valid_w)
+        mask = mask_h & mask_w
+        mask = mask[..., None]  # (H,W,1)
+        img = resized * mask
+
+        img = img / 255.0
+        img = (img - self.mean) / self.std
+        return img
     
     def _get_preprocess_single_jitted(self):
         """Get or create JIT-compiled preprocessing function."""
