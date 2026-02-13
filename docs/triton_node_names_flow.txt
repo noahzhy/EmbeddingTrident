@@ -6,11 +6,11 @@
 │  config.yaml    │    │  Environment    │    │  Code Direct    │
 │                 │    │  Variables      │    │  Init           │
 │ triton:         │    │                 │    │                 │
-│   input_name:   │    │ TRITON_INPUT_   │    │ TritonClient(  │
-│     "images"    │    │   NAME="input"  │    │   input_name=  │
-│   output_name:  │    │ TRITON_OUTPUT_  │    │     "custom",  │
-│     "embeddings"│    │   NAME="output" │    │   output_name= │
-│                 │    │                 │    │     "result"   │
+│   input_name:   │    │ TRITON_INPUT_   │    │ TritonClient(   │
+│     "images"    │    │   NAME="input"  │    │   input_name=   │
+│   output_name:  │    │ TRITON_OUTPUT_  │    │     "custom",   │
+│     "embeddings"│    │   NAME="output" │    │   output_name=  │
+│                 │    │                 │    │     "result"    │
 └────────┬────────┘    └────────┬────────┘    └────────┬────────┘
          │                      │                       │
          └──────────────────────┼───────────────────────┘
@@ -48,7 +48,7 @@
                     │   Model Inference     │
                     │                       │
                     │   Input: "images"     │
-                    │   Output: "embeddings"│
+                    │   Output: "vector"    │
                     └───────────────────────┘
 
 Features:

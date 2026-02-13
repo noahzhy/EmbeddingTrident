@@ -201,11 +201,11 @@ print(f"Platform: {preprocessor.device.platform}")
 
 ### Expected Speedup / 预期加速
 
-| Operation | CPU Time | GPU Time | Speedup |
-|-----------|----------|----------|---------|
-| Resize (batch=32) | ~50 ms | ~10 ms | **5x** |
-| Normalize (batch=32) | ~20 ms | ~4 ms | **5x** |
-| Total preprocessing | ~70 ms | ~15 ms | **4.7x** |
+| Operation            | CPU Time | GPU Time | Speedup  |
+| -------------------- | -------- | -------- | -------- |
+| Resize (batch=32)    | ~50 ms   | ~10 ms   | **5x**   |
+| Normalize (batch=32) | ~20 ms   | ~4 ms    | **5x**   |
+| Total preprocessing  | ~70 ms   | ~15 ms   | **4.7x** |
 
 **Note**: Actual speedup depends on GPU model, batch size, and image size.
 

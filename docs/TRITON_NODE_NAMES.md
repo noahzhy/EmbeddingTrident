@@ -4,11 +4,11 @@
 
 This feature allows users to specify custom input and output tensor names for Triton Inference Server, providing flexibility for different model architectures.
 
-## Problem Statement (问题描述)
+## Problem Statement
 
 Previously, the Triton client used hardcoded default values ("input" and "output") for tensor names. This limitation prevented users from working with models that use different tensor naming conventions.
 
-## Solution (解决方案)
+## Solution
 
 Added configurable input/output node names at multiple levels:
 1. Configuration file (YAML)
@@ -151,12 +151,12 @@ with ImageEmbeddingPipeline(config) as pipeline:
 
 ## Benefits
 
-✅ **Flexibility**: Works with any model architecture
-✅ **Backward Compatible**: Default values maintain existing behavior
-✅ **Multiple Configuration Methods**: YAML, env vars, or code
-✅ **Per-Call Override**: Can still override for specific calls
-✅ **Type Safe**: Full type hints maintained
-✅ **Well Tested**: Comprehensive test coverage
+- ✅ **Flexibility**: Works with any model architecture
+- ✅ **Backward Compatible**: Default values maintain existing behavior
+- ✅ **Multiple Configuration Methods**: YAML, env vars, or code
+- ✅ **Per-Call Override**: Can still override for specific calls
+- ✅ **Type Safe**: Full type hints maintained
+- ✅ **Well Tested**: Comprehensive test coverage
 
 ## Testing
 
@@ -181,9 +181,9 @@ A comprehensive test suite was added in `tests/test_triton_node_names.py`:
 
 ## Backward Compatibility
 
-✅ All existing code continues to work without changes
-✅ Default values ("input", "output") maintain previous behavior
-✅ No breaking changes to API
+- ✅ All existing code continues to work without changes
+- ✅ Default values ("input", "output") maintain previous behavior
+- ✅ No breaking changes to API
 
 ## Future Enhancements
 
@@ -194,6 +194,6 @@ Potential future improvements:
 
 ---
 
-**Feature Status**: ✅ Complete and Tested
-**Backward Compatible**: ✅ Yes
-**Tests Passing**: ✅ 6/6
+- **Feature Status**: ✅ Complete and Tested
+- **Backward Compatible**: ✅ Yes
+- **Tests Passing**: ✅ 6/6

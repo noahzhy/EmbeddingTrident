@@ -1,4 +1,5 @@
-# JAX + Triton + Milvus Image Embedding Service
+# Embedding Trident
+JAX + Triton + Milvus Image Embedding Service
 
 A **production-ready image embedding service** combining:
 - **JAX** for high-performance preprocessing (jit + vmap)
@@ -18,12 +19,12 @@ A **production-ready image embedding service** combining:
 
 ## 📋 Performance Targets
 
-| Stage | Target |
-|-------|--------|
-| JAX preprocess | JIT-compiled, vectorized |
-| Triton inference | Batch optimized |
-| Insert throughput | ≥ 5k vectors/sec |
-| Search latency | < 50 ms (TopK=10) |
+| Stage             | Target                   |
+| ----------------- | ------------------------ |
+| JAX preprocess    | JIT-compiled, vectorized |
+| Triton inference  | Batch optimized          |
+| Insert throughput | ≥ 5k vectors/sec         |
+| Search latency    | < 50 ms (TopK=10)        |
 
 ## 📦 Installation
 

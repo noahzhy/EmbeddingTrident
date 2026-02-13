@@ -32,11 +32,11 @@ The image embedding pipeline has been significantly optimized through:
 
 ### Component Performance
 
-| Component | Before | After | Speedup |
-|-----------|--------|-------|---------|
-| Transpose | 1.70 ms | 1.17 ms | **1.46x** |
-| Image Loading (16 imgs) | 43.24 ms | 28.69 ms | **1.51x** |
-| vmap Throughput | - | 717.8 img/s | - |
+| Component               | Before   | After       | Speedup   |
+| ----------------------- | -------- | ----------- | --------- |
+| Transpose               | 1.70 ms  | 1.17 ms     | **1.46x** |
+| Image Loading (16 imgs) | 43.24 ms | 28.69 ms    | **1.51x** |
+| vmap Throughput         | -        | 717.8 img/s | -         |
 
 ---
 
