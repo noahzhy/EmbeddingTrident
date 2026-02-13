@@ -55,6 +55,9 @@ class MilvusClient:
         min_iterations: int = 0,
         max_iterations: int = 0,
         team_size: int = 0,
+        # GPU_IVF_PQ parameters
+        m: int = 8,
+        nbits: int = 8,
         alias: str = "default",
     ):
         """
@@ -78,6 +81,8 @@ class MilvusClient:
             min_iterations: Min iterations (for GPU_CAGRA)
             max_iterations: Max iterations (for GPU_CAGRA)
             team_size: Team size (for GPU_CAGRA)
+            m: Number of subquantizers (for GPU_IVF_PQ)
+            nbits: Bits per subquantizer (for GPU_IVF_PQ)
             alias: Connection alias
         """
         self.host = host
@@ -98,6 +103,9 @@ class MilvusClient:
         self.min_iterations = min_iterations
         self.max_iterations = max_iterations
         self.team_size = team_size
+        # GPU_IVF_PQ parameters
+        self.m = m
+        self.nbits = nbits
         self.alias = alias
         
         # Connect to Milvus
@@ -283,8 +291,8 @@ class MilvusClient:
                     "index_type": "GPU_IVF_PQ",
                     "params": {
                         "nlist": self.nlist,
-                        "m": 8,  # Number of subquantizers
-                        "nbits": 8,  # Bits per subquantizer
+                        "m": self.m,  # Number of subquantizers (configurable)
+                        "nbits": self.nbits,  # Bits per subquantizer (configurable)
                     },
                 }
             elif self.index_type == "GPU_BRUTE_FORCE":

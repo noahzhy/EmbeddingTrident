@@ -165,6 +165,14 @@ milvus:
   graph_degree: 32
   itopk_size: 64
   search_width: 4
+  min_iterations: 0
+  max_iterations: 0
+  team_size: 0
+  # GPU_IVF_PQ specific (if using GPU_IVF_PQ)
+  nlist: 128
+  nprobe: 16
+  m: 8  # Number of subquantizers
+  nbits: 8  # Bits per subquantizer
 ```
 
 ## Requirements
@@ -244,6 +252,7 @@ client = MilvusClient(
 
 ## References
 
-- [Milvus GPU Index Documentation](https://milvus.io/docs/gpu_index.md)
+- [Milvus Documentation](https://milvus.io/docs/)
+- [Milvus GPU Index Guide](https://milvus.io/docs/index.md)
 - [CAGRA Algorithm Paper](https://arxiv.org/abs/2308.15136)
 - [Product Quantization](https://ieeexplore.ieee.org/document/5432202)
