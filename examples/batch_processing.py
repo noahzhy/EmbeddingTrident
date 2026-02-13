@@ -160,7 +160,7 @@ def main():
             return
         
         # Run benchmarks with different batch sizes
-        for batch_size in [8, 16, 32]:
+        for batch_size in [16, 32]:
             logger.info(f"\n{'='*60}")
             logger.info(f"Batch size: {batch_size}")
             logger.info(f"{'='*60}\n")

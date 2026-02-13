@@ -214,17 +214,19 @@ class ImageEmbeddingPipeline:
             embeddings=embeddings,
             metadata=metadata,
             collection_name=collection_name,
+            auto_flush=False,
+            _async=True,  # Use async insert for better performance
         )
-        
+        result = inserted_ids.result()  # MutationResult
         total_time = time.time() - start_time
         throughput = len(inputs) / total_time
-        
+    
+        num_inserted = len(result.primary_keys)
         logger.info(
-            f"Inserted {len(inserted_ids)} images in {total_time:.3f}s "
+            f"Inserted {num_inserted} images in {total_time:.3f}s "
             f"({throughput:.1f} images/sec)"
         )
-        
-        return inserted_ids
+        return result
     
     def insert_images_async(
         self,
