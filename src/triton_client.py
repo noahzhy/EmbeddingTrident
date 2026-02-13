@@ -3,8 +3,6 @@ Triton Inference Server client for embedding extraction.
 """
 
 import numpy as np
-import jax.numpy as jnp
-from jax import jit
 from typing import List, Optional, Dict, Any
 import time
 from loguru import logger
@@ -117,26 +115,9 @@ class TritonClient:
             logger.warning(f"Could not get model metadata: {e}")
             self.model_metadata = None
     
-    @staticmethod
-    @jit
-    def _l2_normalize_jax(embeddings: jnp.ndarray) -> jnp.ndarray:
-        """
-        JIT-compiled L2 normalization.
-        
-        Args:
-            embeddings: Input embeddings (B, D)
-            
-        Returns:
-            L2-normalized embeddings
-        """
-        norms = jnp.linalg.norm(embeddings, axis=1, keepdims=True)
-        # Avoid division by zero
-        norms = jnp.where(norms == 0, 1.0, norms)
-        return embeddings / norms
-    
     def l2_normalize(self, embeddings: np.ndarray) -> np.ndarray:
         """
-        L2 normalize embeddings.
+        L2 normalize embeddings using pure NumPy (thread-safe).
         
         Args:
             embeddings: Input embeddings (B, D)
@@ -144,9 +125,12 @@ class TritonClient:
         Returns:
             Normalized embeddings
         """
-        jax_embeddings = jnp.array(embeddings)
-        normalized = self._l2_normalize_jax(jax_embeddings)
-        return np.array(normalized)
+        # Calculate L2 norms along the embedding dimension
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        # Avoid division by zero
+        norms = np.where(norms == 0, 1.0, norms)
+        # Normalize
+        return embeddings / norms
     
     def infer(
         self,
