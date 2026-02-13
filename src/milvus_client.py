@@ -39,9 +39,9 @@ class MilvusClient:
         host: str = "localhost",
         port: int = 19530,
         collection_name: str = "image_embeddings",
-        embedding_dim: int = 512,
+        embedding_dim: int = 768,
         index_type: str = "IVF_FLAT",
-        metric_type: str = "L2",
+        metric_type: str = "IP",
         nlist: int = 128,
         nprobe: int = 16,
         M: int = 16,
@@ -135,7 +135,7 @@ class MilvusClient:
         name: Optional[str] = None,
         dim: Optional[int] = None,
         description: str = "",
-        auto_id: bool = False,
+        auto_id: bool = True,
     ) -> Collection:
         """
         Create a new collection.
@@ -161,13 +161,12 @@ class MilvusClient:
             fields = [
                 FieldSchema(
                     name="id",
-                    dtype=DataType.VARCHAR,
-                    max_length=256,
+                    dtype=DataType.INT64,
                     is_primary=True,
                     auto_id=auto_id,
                 ),
                 FieldSchema(
-                    name="embedding",
+                    name="vector",
                     dtype=DataType.FLOAT_VECTOR,
                     dim=dim,
                 ),

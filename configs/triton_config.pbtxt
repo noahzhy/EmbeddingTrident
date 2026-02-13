@@ -1,6 +1,7 @@
 name: "embedding_model"
 platform: "onnxruntime_onnx"
-max_batch_size: 32
+max_batch_size: 64
+
 input [
   {
     name: "input"
@@ -8,6 +9,7 @@ input [
     dims: [ 3, 224, 224 ]
   }
 ]
+
 output [
   {
     name: "output"
@@ -18,8 +20,8 @@ output [
 
 instance_group [
   {
-    count: 1
     kind: KIND_GPU
+    count: 1
   }
 ]
 

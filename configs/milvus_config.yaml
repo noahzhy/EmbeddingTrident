@@ -5,10 +5,10 @@ collections:
     schema:
       fields:
         - name: "id"
-          type: "VARCHAR"
+          type: "INT64"
           max_length: 256
           primary_key: true
-          auto_id: false
+          auto_id: true
         - name: "vector"
           type: "FLOAT_VECTOR"
           dim: 768
