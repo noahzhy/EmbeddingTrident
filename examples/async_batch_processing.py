@@ -80,7 +80,7 @@ def compare_sync_vs_async(
         metadata = [{"batch": i // batch_size} for i in range(num_images)]
         
         # Test 1: Synchronous pipeline (baseline)
-        collection_name_sync = "sync_benchmark"
+        collection_name_sync = "benchmark_collection"
         try:
             pipeline.delete_collection(collection_name_sync)
         except:
@@ -105,7 +105,7 @@ def compare_sync_vs_async(
         logger.info(f"  Throughput: {sync_throughput:.1f} images/sec")
         
         # Test 2: Asynchronous pipeline (optimized)
-        collection_name_async = "async_benchmark"
+        collection_name_async = "benchmark_collection"
         try:
             pipeline.delete_collection(collection_name_async)
         except:
@@ -173,12 +173,13 @@ def main():
     
     # Load configuration
     config = ServiceConfig.from_env()
+    config = ServiceConfig.from_yaml(os.path.join(os.path.dirname(__file__), '..', '.tmp', 'siglip2_cfg.yaml'))
     
     # Optional: Customize async pipeline settings
     config.async_pipeline.preprocess_workers = 2
     config.async_pipeline.embedding_workers = 1  # Usually 1 for GPU
-    config.async_pipeline.insert_batch_size = 100
-    config.async_pipeline.queue_maxsize = 100
+    config.async_pipeline.insert_batch_size = 1000
+    config.async_pipeline.queue_maxsize = 10000
     
     # Create pipeline
     with ImageEmbeddingPipeline(config) as pipeline:

@@ -461,7 +461,7 @@ class MilvusClient:
         metadata: Optional[List[Dict[str, Any]]] = None,
         collection_name: Optional[str] = None,
         auto_flush: bool = True,
-        _async: bool = False,
+        _async: bool = True,
     ):
         """
         Insert embeddings into collection.
@@ -472,7 +472,7 @@ class MilvusClient:
             metadata: Optional metadata for each embedding
             collection_name: Target collection name
             auto_flush: Whether to flush after insert (default: True)
-            _async: Whether to use async insert (Milvus 2.3+, default: False)
+            _async: Whether to use async insert (Milvus 2.3+, default: True)
             
         Returns:
             List of inserted IDs (or MutationFuture if _async=True)

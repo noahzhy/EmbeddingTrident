@@ -284,6 +284,8 @@ class ImageEmbeddingPipeline:
         # OPTIMIZATION 1: Drop index before bulk insertion to improve performance
         logger.info(f"Dropping index from collection '{collection_name}' for bulk insertion")
         try:
+            self.milvus_client.release_collection(collection_name)
+            logger.debug(f"Collection '{collection_name}' released.")
             self.milvus_client.drop_index(collection_name)
         except Exception as e:
             logger.warning(f"Could not drop index (may not exist): {e}")
