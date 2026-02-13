@@ -305,6 +305,23 @@ Create index on collection after bulk insertion.
 
 ## Troubleshooting / 故障排除
 
+### RPC Errors
+
+```
+[ERROR][handler]: RPC error: [drop_index]
+```
+
+**Solution:** RPC errors can occur due to:
+- Milvus connection not established
+- Network connectivity issues
+- Milvus server problems
+
+The optimization methods now handle these gracefully:
+- `collection_exists()` catches RPC errors and returns False
+- `drop_index()`, `create_index()`, and `flush_collection()` check collection existence first
+- Pipeline continues even with connection issues
+- Errors are logged as warnings for debugging
+
 ### Collection Not Found Error
 
 ```
