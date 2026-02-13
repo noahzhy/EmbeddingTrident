@@ -305,13 +305,21 @@ Create index on collection after bulk insertion.
 
 ## Troubleshooting / 故障排除
 
+### Collection Not Found Error
+
+```
+Error: Collection does not exist
+```
+
+**Solution:** The optimization methods now gracefully handle non-existent collections. If a collection doesn't exist when `drop_index()`, `create_index()`, or `flush_collection()` is called, the method will log an info/warning message and return without error. This is normal during first-time usage or testing.
+
 ### Index Not Found Error
 
 ```
 Error: No index found in collection
 ```
 
-**Solution:** This is normal if collection is new. The error is logged as a warning and doesn't affect functionality.
+**Solution:** This is normal if collection is new. The method checks if an index exists before trying to drop it and logs appropriately.
 
 ### Async Insert Not Available
 
