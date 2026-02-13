@@ -41,6 +41,7 @@ class MilvusClient:
         port: int = 19530,
         collection_name: str = "image_embeddings",
         embedding_dim: int = 768,
+        vector_field_name: str = "vector",
         index_type: str = "IVF_FLAT",
         metric_type: str = "IP",
         nlist: int = 128,
@@ -68,6 +69,7 @@ class MilvusClient:
             port: Milvus server port
             collection_name: Default collection name
             embedding_dim: Embedding vector dimension
+            vector_field_name: Vector field name in collection schema
             index_type: Index type (IVF_FLAT, HNSW, FLAT, GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
             metric_type: Distance metric (L2, IP, COSINE)
             nlist: Number of cluster units (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
@@ -89,6 +91,7 @@ class MilvusClient:
         self.port = port
         self.default_collection_name = collection_name
         self.embedding_dim = embedding_dim
+        self.vector_field_name = vector_field_name
         self.index_type = index_type
         self.metric_type = metric_type
         self.nlist = nlist
@@ -198,7 +201,7 @@ class MilvusClient:
                     auto_id=auto_id,
                 ),
                 FieldSchema(
-                    name="vector",
+                    name=self.vector_field_name,
                     dtype=DataType.FLOAT_VECTOR,
                     dim=dim,
                 ),
@@ -307,7 +310,7 @@ class MilvusClient:
             
             # Create index
             collection.create_index(
-                field_name="embedding",
+                field_name=self.vector_field_name,
                 index_params=index_params,
             )
             
@@ -408,13 +411,80 @@ class MilvusClient:
             
             # Get collection
             collection = self.get_collection(collection_name)
+            schema_fields = list(collection.schema.fields)
             
-            # Prepare data
-            entities = [
-                ids,
-                embeddings.tolist(),
-                metadata,
-            ]
+            # Resolve field names from actual collection schema
+            vector_field = next(
+                (
+                    field for field in schema_fields
+                    if getattr(field, "name", None) == self.vector_field_name
+                ),
+                None,
+            )
+            if vector_field is None:
+                vector_field = next(
+                    (
+                        field for field in schema_fields
+                        if getattr(field, "dtype", None) == DataType.FLOAT_VECTOR
+                    ),
+                    None,
+                )
+            
+            if vector_field is None:
+                raise ValueError(
+                    f"No FLOAT_VECTOR field found in collection '{collection_name}'"
+                )
+            
+            if vector_field.name != self.vector_field_name:
+                logger.warning(
+                    f"Configured vector field '{self.vector_field_name}' not found in "
+                    f"collection '{collection_name}', using '{vector_field.name}' instead"
+                )
+            
+            # Build insert payload by schema order (excluding auto_id primary field)
+            entities: List[Any] = []
+            vector_values = embeddings.tolist()
+            metadata_field_exists = False
+            
+            for field in schema_fields:
+                field_name = getattr(field, "name", None)
+                is_primary = bool(getattr(field, "is_primary", False))
+                auto_id = bool(getattr(field, "auto_id", False))
+                
+                if is_primary and auto_id:
+                    continue
+                
+                if field_name == vector_field.name:
+                    entities.append(vector_values)
+                    continue
+                
+                if field_name == "metadata":
+                    metadata_field_exists = True
+                    entities.append(metadata)
+                    continue
+                
+                if is_primary:
+                    if getattr(field, "dtype", None) == DataType.INT64:
+                        try:
+                            entities.append([int(item) for item in ids])
+                        except Exception as conversion_error:
+                            raise ValueError(
+                                f"Primary key field '{field_name}' expects INT64 values, "
+                                f"but got non-integer IDs"
+                            ) from conversion_error
+                    else:
+                        entities.append(ids)
+                    continue
+                
+                raise ValueError(
+                    f"Unsupported required field '{field_name}' in collection schema. "
+                    f"Only primary key, vector, and metadata fields are currently supported."
+                )
+            
+            if metadata is not None and not metadata_field_exists:
+                logger.warning(
+                    f"Collection '{collection_name}' has no 'metadata' field; provided metadata will be ignored"
+                )
             
             # Insert
             insert_result = collection.insert(entities)
@@ -424,13 +494,16 @@ class MilvusClient:
             
             insert_time = time.time() - start_time
             throughput = len(ids) / insert_time
+            inserted_ids = ids
+            if hasattr(insert_result, "primary_keys") and insert_result.primary_keys:
+                inserted_ids = [str(primary_key) for primary_key in insert_result.primary_keys]
             
             logger.info(
-                f"Inserted {len(ids)} embeddings in {insert_time:.3f}s "
+                f"Inserted {len(inserted_ids)} embeddings in {insert_time:.3f}s "
                 f"({throughput:.0f} vectors/sec)"
             )
             
-            return ids
+            return inserted_ids
             
         except Exception as e:
             logger.error(f"Failed to insert embeddings: {e}")
@@ -558,7 +631,7 @@ class MilvusClient:
             # Search
             results = collection.search(
                 data=query_embedding.tolist(),
-                anns_field="embedding",
+                anns_field=self.vector_field_name,
                 param=search_params,
                 limit=topk,
                 expr=filter_expr,

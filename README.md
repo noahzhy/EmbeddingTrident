@@ -362,6 +362,7 @@ milvus:
   host: "localhost"
   port: 19530
   embedding_dim: 512
+  vector_field_name: "vector"  # Must match your Milvus FLOAT_VECTOR field name
   index_type: "IVF_FLAT"
 
 preprocess:
@@ -379,6 +380,7 @@ export TRITON_OUTPUT_NAME="output"
 export MILVUS_HOST="localhost"
 export MILVUS_PORT="19530"
 export MILVUS_EMBEDDING_DIM="512"
+export MILVUS_VECTOR_FIELD_NAME="vector"
 ```
 
 ## 🔧 Advanced Usage

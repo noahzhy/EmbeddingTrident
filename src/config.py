@@ -30,6 +30,7 @@ class MilvusConfig:
     port: int = 19530
     collection_name: str = "image_embeddings"
     embedding_dim: int = 512
+    vector_field_name: str = "vector"
     index_type: str = "IVF_FLAT"  # IVF_FLAT, HNSW, FLAT, GPU_CAGRA, GPU_IVF_FLAT, GPU_IVF_PQ, GPU_BRUTE_FORCE
     metric_type: str = "L2"  # L2, IP, COSINE
     nlist: int = 128  # for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ
@@ -44,7 +45,7 @@ class MilvusConfig:
     min_iterations: int = 0  # for GPU_CAGRA
     max_iterations: int = 0  # for GPU_CAGRA
     team_size: int = 0  # for GPU_CAGRA
-    m: int = 8  # for GPU_IVF_PQ
+    m: int = 32  # for GPU_IVF_PQ
     nbits: int = 8  # for GPU_IVF_PQ
 
 
@@ -119,6 +120,8 @@ class ServiceConfig:
             config.milvus.collection_name = os.getenv('MILVUS_COLLECTION_NAME')
         if os.getenv('MILVUS_EMBEDDING_DIM'):
             config.milvus.embedding_dim = int(os.getenv('MILVUS_EMBEDDING_DIM'))
+        if os.getenv('MILVUS_VECTOR_FIELD_NAME'):
+            config.milvus.vector_field_name = os.getenv('MILVUS_VECTOR_FIELD_NAME')
         
         # Preprocessing / JAX
         if os.getenv('JAX_USE_GPU'):
@@ -151,6 +154,7 @@ class ServiceConfig:
                 'port': self.milvus.port,
                 'collection_name': self.milvus.collection_name,
                 'embedding_dim': self.milvus.embedding_dim,
+                'vector_field_name': self.milvus.vector_field_name,
                 'index_type': self.milvus.index_type,
                 'metric_type': self.milvus.metric_type,
                 'nlist': self.milvus.nlist,

@@ -183,7 +183,7 @@ def main():
     logger.info("="*60)
     
     # Create dummy image
-    dummy_image = np.random.rand(512, 512, 3).astype(np.float32) * 255
+    dummy_image = np.random.rand(224, 224, 3).astype(np.float32) * 255
     logger.info(f"Input image shape: {dummy_image.shape}")
     
     # Preprocess single image
