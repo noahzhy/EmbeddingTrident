@@ -187,6 +187,12 @@ class ServiceConfig:
                 'use_gpu': self.preprocess.use_gpu,
                 'jax_platform': self.preprocess.jax_platform,
             },
+            'async_pipeline': {
+                'preprocess_workers': self.async_pipeline.preprocess_workers,
+                'embedding_workers': self.async_pipeline.embedding_workers,
+                'insert_batch_size': self.async_pipeline.insert_batch_size,
+                'queue_maxsize': self.async_pipeline.queue_maxsize,
+            },
             'log_level': self.log_level,
             'cache_compiled_functions': self.cache_compiled_functions,
         }
