@@ -6,8 +6,8 @@ import numpy as np
 from typing import List, Dict, Optional, Union, Any, Tuple
 from loguru import logger
 import time
-import threading
-import queue
+import gevent
+from gevent import queue
 from concurrent.futures import ThreadPoolExecutor
 
 from .base_preprocessor import BaseJAXPreprocessor
@@ -242,10 +242,10 @@ class ImageEmbeddingPipeline:
         Extract embeddings and insert into Milvus using async pipeline.
         
         Architecture:
-            Main thread: JAX preprocessing → Producer thread → Embedding workers → Queue → Async Milvus inserter
+            Main thread: JAX preprocessing → Producer greenlet → Embedding workers → Queue → Async Milvus inserter
         
         This prevents GPU from waiting on database operations while keeping JAX operations in the main thread.
-        Note: JAX preprocessing is done in the main thread to avoid thread-switching errors.
+        Note: Uses gevent greenlets instead of OS threads for better cooperative multitasking.
         
         Args:
             inputs: List of image paths or URLs
@@ -253,8 +253,8 @@ class ImageEmbeddingPipeline:
             metadata: Optional metadata for each image
             collection_name: Target collection name
             batch_size: Batch size for preprocessing and embedding
-            preprocess_workers: Number of preprocessing worker threads (default: from config)
-            embedding_workers: Number of embedding worker threads (default: from config)
+            preprocess_workers: Number of preprocessing worker greenlets (default: from config)
+            embedding_workers: Number of embedding worker greenlets (default: from config)
             insert_batch_size: Batch size for Milvus insertion (default: from config)
             queue_maxsize: Maximum size of the embedding queue (default: from config)
             
@@ -440,29 +440,17 @@ class ImageEmbeddingPipeline:
                 logger.error(f"Milvus inserter error: {e}")
                 error_container.append(e)
         
-        # Start all threads
-        producer_thread = threading.Thread(target=producer, name="Producer")
-        embedding_threads = [
-            threading.Thread(target=embedding_worker, args=(i,), name=f"EmbeddingWorker-{i}")
+        # Start all greenlets (gevent coroutines)
+        producer_greenlet = gevent.spawn(producer)
+        embedding_greenlets = [
+            gevent.spawn(embedding_worker, i)
             for i in range(embedding_workers)
         ]
-        inserter_thread = threading.Thread(target=milvus_inserter, name="MilvusInserter")
+        inserter_greenlet = gevent.spawn(milvus_inserter)
         
-        producer_thread.start()
-        for t in embedding_threads:
-            t.start()
-        inserter_thread.start()
-        
-        # Wait for all threads to complete
-        producer_thread.join()
-        logger.debug("Producer thread joined")
-        
-        for t in embedding_threads:
-            t.join()
-        logger.debug("All embedding threads joined")
-        
-        inserter_thread.join()
-        logger.debug("Inserter thread joined")
+        # Wait for all greenlets to complete
+        gevent.joinall([producer_greenlet] + embedding_greenlets + [inserter_greenlet])
+        logger.debug("All greenlets completed")
         
         # Check for errors
         if error_container:
