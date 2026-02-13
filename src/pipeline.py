@@ -99,7 +99,7 @@ class ImageEmbeddingPipeline:
             port=config.milvus.port,
             collection_name=config.milvus.collection_name,
             embedding_dim=config.milvus.embedding_dim,
-            vector_field_name=config.milvus.vector_field_name,
+            vector_field=config.milvus.vector_field,
             index_type=config.milvus.index_type,
             metric_type=config.milvus.metric_type,
             nlist=config.milvus.nlist,

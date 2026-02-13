@@ -79,7 +79,7 @@ milvus:
   port: 19530
   collection_name: "demo"
   embedding_dim: 512
-  vector_field_name: "vector"  # Must match your Milvus FLOAT_VECTOR field name
+  vector_field: "vector"  # Must match your Milvus FLOAT_VECTOR field name
   index_type: "IVF_FLAT"
   metric_type: "IP"
   nlist: 128

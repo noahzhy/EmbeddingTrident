@@ -41,7 +41,7 @@ class MilvusClient:
         port: int = 19530,
         collection_name: str = "image_embeddings",
         embedding_dim: int = 768,
-        vector_field_name: str = "vector",
+        vector_field: str = "vector",
         index_type: str = "IVF_FLAT",
         metric_type: str = "IP",
         nlist: int = 128,
@@ -69,7 +69,7 @@ class MilvusClient:
             port: Milvus server port
             collection_name: Default collection name
             embedding_dim: Embedding vector dimension
-            vector_field_name: Vector field name in collection schema
+            vector_field: Vector field name in collection schema
             index_type: Index type (IVF_FLAT, HNSW, FLAT, GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
             metric_type: Distance metric (L2, IP, COSINE)
             nlist: Number of cluster units (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
@@ -91,7 +91,7 @@ class MilvusClient:
         self.port = port
         self.default_collection_name = collection_name
         self.embedding_dim = embedding_dim
-        self.vector_field_name = vector_field_name
+        self.vector_field = vector_field
         self.index_type = index_type
         self.metric_type = metric_type
         self.nlist = nlist
@@ -201,7 +201,7 @@ class MilvusClient:
                     auto_id=auto_id,
                 ),
                 FieldSchema(
-                    name=self.vector_field_name,
+                    name=self.vector_field,
                     dtype=DataType.FLOAT_VECTOR,
                     dim=dim,
                 ),
@@ -310,7 +310,7 @@ class MilvusClient:
             
             # Create index
             collection.create_index(
-                field_name=self.vector_field_name,
+                field_name=self.vector_field,
                 index_params=index_params,
             )
             
@@ -417,7 +417,7 @@ class MilvusClient:
             vector_field = next(
                 (
                     field for field in schema_fields
-                    if getattr(field, "name", None) == self.vector_field_name
+                    if getattr(field, "name", None) == self.vector_field
                 ),
                 None,
             )
@@ -435,9 +435,9 @@ class MilvusClient:
                     f"No FLOAT_VECTOR field found in collection '{collection_name}'"
                 )
             
-            if vector_field.name != self.vector_field_name:
+            if vector_field.name != self.vector_field:
                 logger.warning(
-                    f"Configured vector field '{self.vector_field_name}' not found in "
+                    f"Configured vector field '{self.vector_field}' not found in "
                     f"collection '{collection_name}', using '{vector_field.name}' instead"
                 )
             
@@ -631,7 +631,7 @@ class MilvusClient:
             # Search
             results = collection.search(
                 data=query_embedding.tolist(),
-                anns_field=self.vector_field_name,
+                anns_field=self.vector_field,
                 param=search_params,
                 limit=topk,
                 expr=filter_expr,

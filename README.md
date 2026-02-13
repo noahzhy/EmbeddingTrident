@@ -362,7 +362,7 @@ milvus:
   host: "localhost"
   port: 19530
   embedding_dim: 512
-  vector_field_name: "vector"  # Must match your Milvus FLOAT_VECTOR field name
+  vector_field: "vector"  # Must match your Milvus FLOAT_VECTOR field name
   index_type: "IVF_FLAT"
 
 preprocess:
