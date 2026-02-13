@@ -25,6 +25,60 @@ milvus:
   nbits: 8
   efConstruction: 256
 
+# Collection Configuration for Milvus
+# Detailed collection schema definitions for managing complex Milvus database configurations
+collections:
+  - name: "test_collection"
+    description: "Default image embedding collection"
+    schema:
+      fields:
+        - name: "id"
+          type: "INT64"
+          max_length: 256
+          primary_key: true
+          auto_id: true
+        - name: "vector"
+          type: "FLOAT_VECTOR"
+          dim: 768
+        - name: "metadata"
+          type: "JSON"
+    index:
+      field_name: "vector"
+      index_type: "GPU_IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
+      metric_type: "IP"  # Options: L2, IP, COSINE
+      params:
+        nlist: 128  # for IVF_FLAT
+        # M: 16  # for HNSW
+        # efConstruction: 256  # for HNSW
+    search_params:
+      nprobe: 16  # for IVF_FLAT
+      # ef: 64  # for HNSW
+
+# Alternative HNSW Configuration
+# For better search quality at the cost of build time:
+#   - name: "image_embeddings_hnsw"
+#     description: "Image embeddings with HNSW index"
+#     schema:
+#       fields:
+#         - name: "id"
+#           type: "INT64"
+#           primary_key: true
+#           auto_id: true
+#         - name: "vector"
+#           type: "FLOAT_VECTOR"
+#           dim: 768
+#         - name: "metadata"
+#           type: "JSON"
+#     index:
+#       field_name: "vector"
+#       index_type: "HNSW"
+#       metric_type: "IP"
+#       params:
+#         M: 16
+#         efConstruction: 256
+#     search_params:
+#       ef: 64
+
 # Preprocessing Configuration
 preprocess:
   image_size: [224, 224]
