@@ -328,9 +328,8 @@ print(jax.devices())  # Should show gpu devices
 │   ├── api_server.py          # FastAPI REST endpoints
 │   └── cli.py                 # Command-line interface
 ├── configs/
-│   ├── config.yaml            # Service configuration
-│   ├── triton_config.pbtxt    # Triton model config
-│   └── milvus_config.yaml     # Milvus schema config
+│   ├── config.yaml            # Unified service and Milvus schema configuration
+│   └── triton_config.pbtxt    # Triton model config
 ├── examples/
 │   ├── basic_usage.py         # Basic usage examples
 │   ├── batch_processing.py    # Batch processing benchmark
