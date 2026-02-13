@@ -10,8 +10,14 @@ The async pipeline architecture optimizes throughput by decoupling preprocessing
 
 ```
 ┌─────────────────┐
-│  Producer       │  Preprocessing in batches
-│  Thread         │  (JAX preprocessing)
+│  Main Thread    │  JAX preprocessing in batches
+│  (preprocessing)│  (must run in main thread)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Producer       │  Queue management
+│  Thread         │  (feeds preprocessed data)
 └────────┬────────┘
          │
          ▼
@@ -33,6 +39,8 @@ The async pipeline architecture optimizes throughput by decoupling preprocessing
 └─────────────────┘
 ```
 
+**Note:** JAX preprocessing runs in the main thread to avoid thread-switching errors. The producer thread only manages queue operations.
+
 ### Problem Statement
 
 **Before (Synchronous Pipeline):**
@@ -47,13 +55,12 @@ The GPU waits for:
 
 **After (Async Pipeline):**
 ```
-Producer (preprocess) ──┐
-                        ├──→ Embedding Workers (GPU) ──→ Queue ──→ Milvus Inserter
-Producer (preprocess) ──┘
+Main Thread (JAX preprocess) ──→ Producer Thread (queue) ──→ Embedding Workers (GPU) ──→ Queue ──→ Milvus Inserter
 ```
 
 The GPU never waits:
-- Preprocessing happens in parallel threads
+- JAX preprocessing happens in main thread (avoids thread-switching errors)
+- Queue management happens in producer thread
 - Database operations happen asynchronously in background
 
 ### Key Benefits

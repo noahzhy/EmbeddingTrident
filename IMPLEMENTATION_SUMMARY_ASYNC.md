@@ -87,7 +87,13 @@ ids = pipeline.insert_images_async(
 
 ```
 ┌─────────────────┐
-│  Producer       │  Preprocessing (JAX)
+│  Main Thread    │  JAX Preprocessing
+│  (preprocessing)│  (thread-safe)
+└────────┬────────┘
+         │ Preprocessed
+         ▼
+┌─────────────────┐
+│  Producer       │  Queue Management
 │  Thread         │  
 └────────┬────────┘
          │ Batches
@@ -109,6 +115,8 @@ ids = pipeline.insert_images_async(
 │  Inserter       │  
 └─────────────────┘
 ```
+
+**Note:** JAX preprocessing is done in the main thread to avoid thread-switching errors.
 
 ### Performance
 

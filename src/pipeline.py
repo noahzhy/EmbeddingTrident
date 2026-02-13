@@ -242,9 +242,10 @@ class ImageEmbeddingPipeline:
         Extract embeddings and insert into Milvus using async pipeline.
         
         Architecture:
-            Producer threads → Embedding workers → Queue → Async Milvus inserter
+            Main thread: JAX preprocessing → Producer thread → Embedding workers → Queue → Async Milvus inserter
         
-        This prevents GPU from waiting on database operations.
+        This prevents GPU from waiting on database operations while keeping JAX operations in the main thread.
+        Note: JAX preprocessing is done in the main thread to avoid thread-switching errors.
         
         Args:
             inputs: List of image paths or URLs
@@ -277,6 +278,32 @@ class ImageEmbeddingPipeline:
         
         start_time = time.time()
         
+        # Preprocess all images in the main thread (JAX operations must run in the same thread)
+        logger.info(f"Preprocessing {len(inputs)} images in batches of {batch_size}")
+        preprocessed_batches = []
+        try:
+            for i in range(0, len(inputs), batch_size):
+                batch_inputs = inputs[i:i + batch_size]
+                batch_ids = ids[i:i + batch_size]
+                batch_metadata = metadata[i:i + batch_size] if metadata else None
+                
+                # Preprocess batch in main thread
+                preprocessed = self.preprocessor.preprocess_batch(batch_inputs)
+                
+                preprocessed_batches.append({
+                    'preprocessed': preprocessed,
+                    'ids': batch_ids,
+                    'metadata': batch_metadata,
+                    'batch_idx': i // batch_size,
+                })
+                
+                logger.debug(f"Preprocessed batch {i // batch_size}, size={len(batch_inputs)}")
+        except Exception as e:
+            logger.error(f"Preprocessing error: {e}")
+            raise RuntimeError(f"Preprocessing failed: {e}")
+        
+        logger.info(f"Preprocessing complete, {len(preprocessed_batches)} batches ready")
+        
         # Queues for async pipeline
         preprocess_queue = queue.Queue(maxsize=queue_maxsize)
         embedding_queue = queue.Queue(maxsize=queue_maxsize)
@@ -287,29 +314,16 @@ class ImageEmbeddingPipeline:
         # Shared state
         error_container = []
         
-        # Producer: Preprocess images in batches
+        # Producer: Feed preprocessed batches to embedding workers
         def producer():
             try:
-                logger.info(f"Producer started: preprocessing {len(inputs)} images in batches of {batch_size}")
-                for i in range(0, len(inputs), batch_size):
-                    batch_inputs = inputs[i:i + batch_size]
-                    batch_ids = ids[i:i + batch_size]
-                    batch_metadata = metadata[i:i + batch_size] if metadata else None
-                    
-                    # Preprocess batch
-                    preprocessed = self.preprocessor.preprocess_batch(batch_inputs)
-                    
-                    # Put in queue for embedding workers
-                    preprocess_queue.put({
-                        'preprocessed': preprocessed,
-                        'ids': batch_ids,
-                        'metadata': batch_metadata,
-                        'batch_idx': i // batch_size,
-                    })
-                    
-                    logger.debug(f"Producer: preprocessed batch {i // batch_size}, size={len(batch_inputs)}")
+                logger.info(f"Producer started: feeding {len(preprocessed_batches)} preprocessed batches")
+                for batch_data in preprocessed_batches:
+                    # Put preprocessed batch in queue for embedding workers
+                    preprocess_queue.put(batch_data)
+                    logger.debug(f"Producer: queued batch {batch_data['batch_idx']}")
                 
-                logger.info("Producer: preprocessing complete")
+                logger.info("Producer: all batches queued")
             except Exception as e:
                 logger.error(f"Producer error: {e}")
                 error_container.append(e)
