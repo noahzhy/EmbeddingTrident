@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Union, Any, Tuple
 from loguru import logger
 import time
 
+from .base_preprocessor import ImagePreprocessor
 from .preprocess_jax import JAXImagePreprocessor
 from .triton_client import TritonClient
 from .milvus_client import MilvusClient
@@ -32,12 +33,18 @@ class ImageEmbeddingPipeline:
     - Minimized data transfer overhead
     """
     
-    def __init__(self, config: Optional[ServiceConfig] = None):
+    def __init__(
+        self, 
+        config: Optional[ServiceConfig] = None,
+        preprocessor: Optional[ImagePreprocessor] = None,
+    ):
         """
         Initialize the pipeline.
         
         Args:
             config: Service configuration
+            preprocessor: Optional custom preprocessor implementing ImagePreprocessor protocol.
+                         If None, uses default JAXImagePreprocessor with config settings.
         """
         if config is None:
             config = ServiceConfig()
@@ -47,17 +54,22 @@ class ImageEmbeddingPipeline:
         # Initialize components
         logger.info("Initializing image embedding pipeline...")
         
-        # JAX preprocessor
-        self.preprocessor = JAXImagePreprocessor(
-            image_size=config.preprocess.image_size,
-            mean=config.preprocess.mean,
-            std=config.preprocess.std,
-            cache_compiled=config.cache_compiled_functions,
-            data_format=config.preprocess.data_format,
-            max_workers=config.preprocess.num_workers,
-            use_gpu=config.preprocess.use_gpu,
-            jax_platform=config.preprocess.jax_platform,
-        )
+        # Preprocessor - use custom if provided, otherwise create JAX preprocessor
+        if preprocessor is not None:
+            logger.info("Using custom preprocessor")
+            self.preprocessor = preprocessor
+        else:
+            logger.info("Using default JAXImagePreprocessor")
+            self.preprocessor = JAXImagePreprocessor(
+                image_size=config.preprocess.image_size,
+                mean=config.preprocess.mean,
+                std=config.preprocess.std,
+                cache_compiled=config.cache_compiled_functions,
+                data_format=config.preprocess.data_format,
+                max_workers=config.preprocess.num_workers,
+                use_gpu=config.preprocess.use_gpu,
+                jax_platform=config.preprocess.jax_platform,
+            )
         
         # Triton client
         self.triton_client = TritonClient(
