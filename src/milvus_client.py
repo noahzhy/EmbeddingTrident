@@ -329,6 +329,11 @@ class MilvusClient:
         """
         collection_name = collection_name or self.default_collection_name
         
+        # Check if collection exists first
+        if not self.collection_exists(collection_name):
+            logger.info(f"Collection '{collection_name}' does not exist, skipping index drop")
+            return
+        
         try:
             collection = self.get_collection(collection_name)
             
@@ -352,6 +357,11 @@ class MilvusClient:
         """
         collection_name = collection_name or self.default_collection_name
         
+        # Check if collection exists first
+        if not self.collection_exists(collection_name):
+            logger.warning(f"Collection '{collection_name}' does not exist, cannot create index")
+            return
+        
         try:
             collection = self.get_collection(collection_name)
             self._create_index(collection)
@@ -369,6 +379,11 @@ class MilvusClient:
             collection_name: Target collection name
         """
         collection_name = collection_name or self.default_collection_name
+        
+        # Check if collection exists first
+        if not self.collection_exists(collection_name):
+            logger.warning(f"Collection '{collection_name}' does not exist, cannot flush")
+            return
         
         try:
             collection = self.get_collection(collection_name)
