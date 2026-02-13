@@ -30,6 +30,7 @@ class MilvusClient:
     - Collection lifecycle management
     - Batch insert optimization
     - Multiple index types (IVF_FLAT, HNSW, FLAT)
+    - GPU-accelerated index types (GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
     - Filtered search support
     - Automatic flushing and loading
     """
@@ -46,6 +47,14 @@ class MilvusClient:
         nprobe: int = 16,
         M: int = 16,
         efConstruction: int = 256,
+        # GPU index parameters
+        intermediate_graph_degree: int = 64,
+        graph_degree: int = 32,
+        itopk_size: int = 64,
+        search_width: int = 4,
+        min_iterations: int = 0,
+        max_iterations: int = 0,
+        team_size: int = 0,
         alias: str = "default",
     ):
         """
@@ -56,12 +65,19 @@ class MilvusClient:
             port: Milvus server port
             collection_name: Default collection name
             embedding_dim: Embedding vector dimension
-            index_type: Index type (IVF_FLAT, HNSW, FLAT)
+            index_type: Index type (IVF_FLAT, HNSW, FLAT, GPU_CAGRA, GPU_IVF_PQ, GPU_IVF_FLAT, GPU_BRUTE_FORCE)
             metric_type: Distance metric (L2, IP, COSINE)
-            nlist: Number of cluster units (for IVF_FLAT)
-            nprobe: Number of units to query (for IVF_FLAT)
+            nlist: Number of cluster units (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
+            nprobe: Number of units to query (for IVF_FLAT, GPU_IVF_FLAT, GPU_IVF_PQ)
             M: Maximum degree of node (for HNSW)
             efConstruction: Construction time/accuracy tradeoff (for HNSW)
+            intermediate_graph_degree: Intermediate graph degree (for GPU_CAGRA)
+            graph_degree: Graph degree (for GPU_CAGRA)
+            itopk_size: itopk size for search (for GPU_CAGRA)
+            search_width: Search width (for GPU_CAGRA)
+            min_iterations: Min iterations (for GPU_CAGRA)
+            max_iterations: Max iterations (for GPU_CAGRA)
+            team_size: Team size (for GPU_CAGRA)
             alias: Connection alias
         """
         self.host = host
@@ -74,6 +90,14 @@ class MilvusClient:
         self.nprobe = nprobe
         self.M = M
         self.efConstruction = efConstruction
+        # GPU index parameters
+        self.intermediate_graph_degree = intermediate_graph_degree
+        self.graph_degree = graph_degree
+        self.itopk_size = itopk_size
+        self.search_width = search_width
+        self.min_iterations = min_iterations
+        self.max_iterations = max_iterations
+        self.team_size = team_size
         self.alias = alias
         
         # Connect to Milvus
@@ -213,7 +237,7 @@ class MilvusClient:
             collection: Collection object
         """
         try:
-            # Define index parameters
+            # Define index parameters based on index type
             if self.index_type == "IVF_FLAT":
                 index_params = {
                     "metric_type": self.metric_type,
@@ -233,6 +257,41 @@ class MilvusClient:
                 index_params = {
                     "metric_type": self.metric_type,
                     "index_type": "FLAT",
+                    "params": {},
+                }
+            elif self.index_type == "GPU_CAGRA":
+                # GPU_CAGRA: GPU-accelerated graph-based index
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_CAGRA",
+                    "params": {
+                        "intermediate_graph_degree": self.intermediate_graph_degree,
+                        "graph_degree": self.graph_degree,
+                    },
+                }
+            elif self.index_type == "GPU_IVF_FLAT":
+                # GPU_IVF_FLAT: GPU-accelerated IVF index with flat storage
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_IVF_FLAT",
+                    "params": {"nlist": self.nlist},
+                }
+            elif self.index_type == "GPU_IVF_PQ":
+                # GPU_IVF_PQ: GPU-accelerated IVF index with product quantization
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_IVF_PQ",
+                    "params": {
+                        "nlist": self.nlist,
+                        "m": 8,  # Number of subquantizers
+                        "nbits": 8,  # Bits per subquantizer
+                    },
+                }
+            elif self.index_type == "GPU_BRUTE_FORCE":
+                # GPU_BRUTE_FORCE: GPU-accelerated brute-force search
+                index_params = {
+                    "metric_type": self.metric_type,
+                    "index_type": "GPU_BRUTE_FORCE",
                     "params": {},
                 }
             else:
@@ -462,13 +521,31 @@ class MilvusClient:
             # Get collection
             collection = self.get_collection(collection_name)
             
-            # Define search parameters
+            # Define search parameters based on index type
             search_params = {"metric_type": self.metric_type}
             
             if self.index_type == "IVF_FLAT":
                 search_params["params"] = {"nprobe": self.nprobe}
             elif self.index_type == "HNSW":
                 search_params["params"] = {"ef": 64}
+            elif self.index_type == "GPU_CAGRA":
+                # GPU_CAGRA search parameters
+                search_params["params"] = {
+                    "itopk_size": self.itopk_size,
+                    "search_width": self.search_width,
+                    "min_iterations": self.min_iterations,
+                    "max_iterations": self.max_iterations,
+                    "team_size": self.team_size,
+                }
+            elif self.index_type == "GPU_IVF_FLAT":
+                # GPU_IVF_FLAT search parameters
+                search_params["params"] = {"nprobe": self.nprobe}
+            elif self.index_type == "GPU_IVF_PQ":
+                # GPU_IVF_PQ search parameters
+                search_params["params"] = {"nprobe": self.nprobe}
+            elif self.index_type == "GPU_BRUTE_FORCE":
+                # GPU_BRUTE_FORCE doesn't need additional params
+                search_params["params"] = {}
             
             # Search
             results = collection.search(
