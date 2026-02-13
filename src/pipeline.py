@@ -6,6 +6,9 @@ import numpy as np
 from typing import List, Dict, Optional, Union, Any, Tuple
 from loguru import logger
 import time
+import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
 
 from .base_preprocessor import BaseJAXPreprocessor
 from .preprocess_jax import JAXImagePreprocessor
@@ -222,6 +225,232 @@ class ImageEmbeddingPipeline:
         )
         
         return inserted_ids
+    
+    def insert_images_async(
+        self,
+        inputs: List[str],
+        ids: List[str],
+        metadata: Optional[List[Dict[str, Any]]] = None,
+        collection_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        preprocess_workers: Optional[int] = None,
+        embedding_workers: Optional[int] = None,
+        insert_batch_size: Optional[int] = None,
+        queue_maxsize: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Extract embeddings and insert into Milvus using async pipeline.
+        
+        Architecture:
+            Producer threads → Embedding workers → Queue → Async Milvus inserter
+        
+        This prevents GPU from waiting on database operations.
+        
+        Args:
+            inputs: List of image paths or URLs
+            ids: List of unique IDs for images
+            metadata: Optional metadata for each image
+            collection_name: Target collection name
+            batch_size: Batch size for preprocessing and embedding
+            preprocess_workers: Number of preprocessing worker threads (default: from config)
+            embedding_workers: Number of embedding worker threads (default: from config)
+            insert_batch_size: Batch size for Milvus insertion (default: from config)
+            queue_maxsize: Maximum size of the embedding queue (default: from config)
+            
+        Returns:
+            List of inserted IDs
+        """
+        if len(inputs) != len(ids):
+            raise ValueError("Number of inputs must match number of IDs")
+        
+        # Use config defaults if not provided
+        if batch_size is None:
+            batch_size = self.config.preprocess.batch_size
+        if preprocess_workers is None:
+            preprocess_workers = self.config.async_pipeline.preprocess_workers
+        if embedding_workers is None:
+            embedding_workers = self.config.async_pipeline.embedding_workers
+        if insert_batch_size is None:
+            insert_batch_size = self.config.async_pipeline.insert_batch_size
+        if queue_maxsize is None:
+            queue_maxsize = self.config.async_pipeline.queue_maxsize
+        
+        start_time = time.time()
+        
+        # Queues for async pipeline
+        preprocess_queue = queue.Queue(maxsize=queue_maxsize)
+        embedding_queue = queue.Queue(maxsize=queue_maxsize)
+        
+        # Shared state
+        preprocessing_done = threading.Event()
+        embedding_done = threading.Event()
+        error_container = []
+        
+        # Producer: Preprocess images in batches
+        def producer():
+            try:
+                logger.info(f"Producer started: preprocessing {len(inputs)} images in batches of {batch_size}")
+                for i in range(0, len(inputs), batch_size):
+                    batch_inputs = inputs[i:i + batch_size]
+                    batch_ids = ids[i:i + batch_size]
+                    batch_metadata = metadata[i:i + batch_size] if metadata else None
+                    
+                    # Preprocess batch
+                    preprocessed = self.preprocessor.preprocess_batch(batch_inputs)
+                    
+                    # Put in queue for embedding workers
+                    preprocess_queue.put({
+                        'preprocessed': preprocessed,
+                        'ids': batch_ids,
+                        'metadata': batch_metadata,
+                        'batch_idx': i // batch_size,
+                    })
+                    
+                    logger.debug(f"Producer: preprocessed batch {i // batch_size}, size={len(batch_inputs)}")
+                
+                logger.info("Producer: preprocessing complete")
+            except Exception as e:
+                logger.error(f"Producer error: {e}")
+                error_container.append(e)
+            finally:
+                preprocessing_done.set()
+        
+        # Embedding workers: Generate embeddings from preprocessed data
+        def embedding_worker():
+            try:
+                logger.info("Embedding worker started")
+                while not preprocessing_done.is_set() or not preprocess_queue.empty():
+                    try:
+                        item = preprocess_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        continue
+                    
+                    # Generate embeddings
+                    embeddings = self.triton_client.infer(
+                        item['preprocessed'],
+                        normalize=True,
+                    )
+                    
+                    # Put in queue for inserter
+                    embedding_queue.put({
+                        'embeddings': embeddings,
+                        'ids': item['ids'],
+                        'metadata': item['metadata'],
+                        'batch_idx': item['batch_idx'],
+                    })
+                    
+                    logger.debug(f"Embedding worker: processed batch {item['batch_idx']}, embeddings shape={embeddings.shape}")
+                    preprocess_queue.task_done()
+                
+                logger.info("Embedding worker: processing complete")
+            except Exception as e:
+                logger.error(f"Embedding worker error: {e}")
+                error_container.append(e)
+            finally:
+                embedding_done.set()
+        
+        # Milvus inserter: Batch insert embeddings asynchronously
+        def milvus_inserter():
+            try:
+                logger.info(f"Milvus inserter started with batch size {insert_batch_size}")
+                batch_embeddings = []
+                batch_ids_list = []
+                batch_metadata_list = []
+                inserted_count = 0
+                
+                while not embedding_done.is_set() or not embedding_queue.empty():
+                    try:
+                        item = embedding_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        continue
+                    
+                    # Accumulate items
+                    batch_embeddings.append(item['embeddings'])
+                    batch_ids_list.extend(item['ids'])
+                    if item['metadata']:
+                        batch_metadata_list.extend(item['metadata'])
+                    
+                    logger.debug(f"Milvus inserter: accumulated batch {item['batch_idx']}, total buffered={len(batch_ids_list)}")
+                    
+                    # Insert when batch is full
+                    if len(batch_ids_list) >= insert_batch_size:
+                        combined_embeddings = np.concatenate(batch_embeddings, axis=0)
+                        combined_metadata = batch_metadata_list if batch_metadata_list else None
+                        
+                        self.milvus_client.insert_embeddings(
+                            ids=batch_ids_list,
+                            embeddings=combined_embeddings,
+                            metadata=combined_metadata,
+                            collection_name=collection_name,
+                        )
+                        
+                        inserted_count += len(batch_ids_list)
+                        logger.info(f"Milvus inserter: inserted batch of {len(batch_ids_list)} embeddings, total={inserted_count}")
+                        
+                        # Reset batch
+                        batch_embeddings = []
+                        batch_ids_list = []
+                        batch_metadata_list = []
+                    
+                    embedding_queue.task_done()
+                
+                # Insert remaining items
+                if batch_ids_list:
+                    combined_embeddings = np.concatenate(batch_embeddings, axis=0)
+                    combined_metadata = batch_metadata_list if batch_metadata_list else None
+                    
+                    self.milvus_client.insert_embeddings(
+                        ids=batch_ids_list,
+                        embeddings=combined_embeddings,
+                        metadata=combined_metadata,
+                        collection_name=collection_name,
+                    )
+                    
+                    inserted_count += len(batch_ids_list)
+                    logger.info(f"Milvus inserter: inserted final batch of {len(batch_ids_list)} embeddings, total={inserted_count}")
+                
+                logger.info(f"Milvus inserter complete: total inserted {inserted_count}")
+            except Exception as e:
+                logger.error(f"Milvus inserter error: {e}")
+                error_container.append(e)
+        
+        # Start all threads
+        producer_thread = threading.Thread(target=producer, name="Producer")
+        embedding_threads = [
+            threading.Thread(target=embedding_worker, name=f"EmbeddingWorker-{i}")
+            for i in range(embedding_workers)
+        ]
+        inserter_thread = threading.Thread(target=milvus_inserter, name="MilvusInserter")
+        
+        producer_thread.start()
+        for t in embedding_threads:
+            t.start()
+        inserter_thread.start()
+        
+        # Wait for all threads to complete
+        producer_thread.join()
+        logger.debug("Producer thread joined")
+        
+        for t in embedding_threads:
+            t.join()
+        logger.debug("All embedding threads joined")
+        
+        inserter_thread.join()
+        logger.debug("Inserter thread joined")
+        
+        # Check for errors
+        if error_container:
+            raise RuntimeError(f"Async pipeline failed: {error_container[0]}")
+        
+        total_time = time.time() - start_time
+        throughput = len(inputs) / total_time
+        
+        logger.info(
+            f"Async pipeline: Inserted {len(ids)} images in {total_time:.3f}s "
+            f"({throughput:.1f} images/sec)"
+        )
+        
+        return ids
     
     def search_images(
         self,

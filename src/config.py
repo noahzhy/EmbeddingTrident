@@ -50,6 +50,15 @@ class MilvusConfig:
 
 
 @dataclass
+class AsyncPipelineConfig:
+    """Async pipeline configuration for optimized throughput."""
+    preprocess_workers: int = 2  # Number of preprocessing worker threads
+    embedding_workers: int = 1  # Number of embedding workers (usually 1 for GPU)
+    insert_batch_size: int = 100  # Batch size for Milvus insertion
+    queue_maxsize: int = 100  # Maximum size of queues
+
+
+@dataclass
 class PreprocessConfig:
     """Image preprocessing configuration."""
     image_size: tuple = (224, 224)
@@ -68,6 +77,7 @@ class ServiceConfig:
     triton: TritonConfig = field(default_factory=TritonConfig)
     milvus: MilvusConfig = field(default_factory=MilvusConfig)
     preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)
+    async_pipeline: AsyncPipelineConfig = field(default_factory=AsyncPipelineConfig)
     log_level: str = "INFO"
     cache_compiled_functions: bool = True
     collections: Optional[List[Dict[str, Any]]] = None  # Detailed Milvus collection schema definitions
@@ -86,6 +96,8 @@ class ServiceConfig:
             config.milvus = MilvusConfig(**data['milvus'])
         if 'preprocess' in data:
             config.preprocess = PreprocessConfig(**data['preprocess'])
+        if 'async_pipeline' in data:
+            config.async_pipeline = AsyncPipelineConfig(**data['async_pipeline'])
         if 'log_level' in data:
             config.log_level = data['log_level']
         if 'cache_compiled_functions' in data:
