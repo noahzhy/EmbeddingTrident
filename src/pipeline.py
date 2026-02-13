@@ -497,7 +497,6 @@ class ImageEmbeddingPipeline:
         collection_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         num_preprocess_workers: Optional[int] = None,
-        embedding_workers: Optional[int] = None,
         insert_batch_size: Optional[int] = None,
         queue_maxsize: Optional[int] = None,
     ) -> List[str]:
@@ -509,7 +508,7 @@ class ImageEmbeddingPipeline:
         
         Architecture:
             [Preprocessing Workers (multiprocessing)] -> Preprocessed Queue -> 
-            [Embedding Workers (gevent)] -> Embedding Queue -> 
+            [Embedding Worker (gevent)] -> Embedding Queue -> 
             [Milvus Inserter (gevent)]
         
         This approach provides:
@@ -518,6 +517,10 @@ class ImageEmbeddingPipeline:
         3. Async embedding generation and database insertion (gevent)
         4. Maximum hardware utilization (CPU + GPU + Database)
         
+        Note: This method uses a single embedding worker since the streaming preprocessor
+        already handles parallelization. Multiple embedding workers would add complexity
+        without significant benefit in this architecture.
+        
         Args:
             inputs: List of image paths or URLs
             ids: List of unique IDs for images
@@ -525,7 +528,6 @@ class ImageEmbeddingPipeline:
             collection_name: Target collection name
             batch_size: Batch size for preprocessing and embedding
             num_preprocess_workers: Number of preprocessing worker processes (default: CPU count)
-            embedding_workers: Number of embedding worker greenlets (default: from config)
             insert_batch_size: Batch size for Milvus insertion (default: from config)
             queue_maxsize: Maximum size of queues (default: from config)
             
@@ -541,8 +543,6 @@ class ImageEmbeddingPipeline:
         if num_preprocess_workers is None:
             import multiprocessing as mp
             num_preprocess_workers = mp.cpu_count()
-        if embedding_workers is None:
-            embedding_workers = self.config.async_pipeline.embedding_workers
         if insert_batch_size is None:
             insert_batch_size = self.config.async_pipeline.insert_batch_size
         if queue_maxsize is None:

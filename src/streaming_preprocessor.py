@@ -80,6 +80,7 @@ class StreamingMultiprocessPreprocessor:
         num_workers: Optional[int] = None,
         batch_size: int = 32,
         queue_maxsize: int = 10,
+        result_timeout: float = 120.0,
         preprocessor_class: type = JAXImagePreprocessor,
         preprocessor_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs
@@ -91,6 +92,7 @@ class StreamingMultiprocessPreprocessor:
             num_workers: Number of worker processes (default: CPU count)
             batch_size: Batch size for preprocessing
             queue_maxsize: Maximum size of input/output queues
+            result_timeout: Timeout in seconds for waiting for preprocessing results (default: 120)
             preprocessor_class: Preprocessor class to use (must inherit from BaseJAXPreprocessor)
             preprocessor_kwargs: Additional kwargs for preprocessor initialization
             **kwargs: Additional arguments passed to preprocessor
@@ -101,6 +103,7 @@ class StreamingMultiprocessPreprocessor:
         self.num_workers = num_workers
         self.batch_size = batch_size
         self.queue_maxsize = queue_maxsize
+        self.result_timeout = result_timeout
         self.preprocessor_class = preprocessor_class
         
         # Merge kwargs for preprocessor
@@ -337,7 +340,7 @@ class StreamingMultiprocessPreprocessor:
         results_received = 0
         while results_received < num_batches:
             try:
-                result = self.output_queue.get(timeout=60.0)
+                result = self.output_queue.get(timeout=self.result_timeout)
                 
                 # Check for errors
                 if 'error' in result:
@@ -354,8 +357,14 @@ class StreamingMultiprocessPreprocessor:
                 )
                 
             except queue_module.Empty:
-                logger.error("Timeout waiting for preprocessing results")
-                raise TimeoutError("Preprocessing timeout - workers may have crashed")
+                logger.error(
+                    f"Timeout waiting for preprocessing results "
+                    f"(waited {self.result_timeout}s)"
+                )
+                raise TimeoutError(
+                    f"Preprocessing timeout after {self.result_timeout}s - "
+                    f"workers may have crashed or processing is taking too long"
+                )
         
         # Yield results in order
         for batch_idx in sorted(results_dict.keys()):
