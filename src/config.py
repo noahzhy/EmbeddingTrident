@@ -70,7 +70,7 @@ class ServiceConfig:
     preprocess: PreprocessConfig = field(default_factory=PreprocessConfig)
     log_level: str = "INFO"
     cache_compiled_functions: bool = True
-    collections: Optional[List[Dict[str, Any]]] = None  # Collection schemas from milvus_config.yaml
+    collections: Optional[List[Dict[str, Any]]] = None  # Detailed Milvus collection schema definitions
     
     @classmethod
     def from_yaml(cls, path: str) -> "ServiceConfig":
