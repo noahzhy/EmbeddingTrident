@@ -18,6 +18,15 @@ from .base_preprocessor import BaseJAXPreprocessor
 from .preprocess_jax import JAXImagePreprocessor
 
 
+# Get spawn context to avoid issues with JAX and forking
+# JAX uses threads internally, which don't play well with fork()
+try:
+    _mp_context = mp.get_context('spawn')
+except ValueError:
+    # If spawn is not available, use default
+    _mp_context = mp
+
+
 class StreamingMultiprocessPreprocessor:
     """
     Streaming multiprocessing preprocessor for high-throughput image preprocessing.
@@ -110,14 +119,15 @@ class StreamingMultiprocessPreprocessor:
         self.input_queue: Optional[Queue] = None
         self.output_queue: Optional[Queue] = None
         self.is_started = False
+        self._mp_context = _mp_context
         
         logger.info(
             f"StreamingMultiprocessPreprocessor initialized with "
             f"{num_workers} workers, batch_size={batch_size}"
         )
     
+    @staticmethod
     def _worker_process(
-        self,
         worker_id: int,
         input_queue: Queue,
         output_queue: Queue,
@@ -211,14 +221,14 @@ class StreamingMultiprocessPreprocessor:
         
         logger.info(f"Starting {self.num_workers} worker processes...")
         
-        # Create queues
-        self.input_queue = Queue(maxsize=self.queue_maxsize)
-        self.output_queue = Queue(maxsize=self.queue_maxsize)
+        # Create queues using spawn context
+        self.input_queue = self._mp_context.Queue(maxsize=self.queue_maxsize)
+        self.output_queue = self._mp_context.Queue(maxsize=self.queue_maxsize)
         
         # Start worker processes
         for worker_id in range(self.num_workers):
-            process = Process(
-                target=self._worker_process,
+            process = self._mp_context.Process(
+                target=StreamingMultiprocessPreprocessor._worker_process,
                 args=(
                     worker_id,
                     self.input_queue,
