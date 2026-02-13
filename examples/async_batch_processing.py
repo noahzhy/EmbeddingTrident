@@ -13,6 +13,8 @@ import sys
 import os
 import time
 import numpy as np
+import tempfile
+import shutil
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -68,11 +70,14 @@ def compare_sync_vs_async(
     logger.info(f"Comparing sync vs async pipeline with {num_images} images")
     logger.info(f"{'='*80}\n")
     
-    # Generate test images
+    # Generate test images in a temporary directory
     logger.info("Generating test images...")
-    image_paths = generate_dummy_images(num_images, "/tmp/test_images_async")
-    ids = [f"img_{i:06d}" for i in range(num_images)]
-    metadata = [{"batch": i // batch_size} for i in range(num_images)]
+    temp_dir = tempfile.mkdtemp(prefix="test_images_async_")
+    
+    try:
+        image_paths = generate_dummy_images(num_images, temp_dir)
+        ids = [f"img_{i:06d}" for i in range(num_images)]
+        metadata = [{"batch": i // batch_size} for i in range(num_images)]
     
     # Test 1: Synchronous pipeline (baseline)
     collection_name_sync = "sync_benchmark"
@@ -152,11 +157,13 @@ def compare_sync_vs_async(
     pipeline.delete_collection(collection_name_sync)
     pipeline.delete_collection(collection_name_async)
     
-    # Remove test images
-    import shutil
-    shutil.rmtree("/tmp/test_images_async")
-    
     logger.info("Benchmark complete!")
+    
+    finally:
+        # Remove test images
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+            logger.debug(f"Removed temporary directory: {temp_dir}")
 
 
 def main():

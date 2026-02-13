@@ -281,9 +281,10 @@ class ImageEmbeddingPipeline:
         preprocess_queue = queue.Queue(maxsize=queue_maxsize)
         embedding_queue = queue.Queue(maxsize=queue_maxsize)
         
+        # Sentinel value to signal completion
+        SENTINEL = object()
+        
         # Shared state
-        preprocessing_done = threading.Event()
-        embedding_done = threading.Event()
         error_container = []
         
         # Producer: Preprocess images in batches
@@ -313,17 +314,22 @@ class ImageEmbeddingPipeline:
                 logger.error(f"Producer error: {e}")
                 error_container.append(e)
             finally:
-                preprocessing_done.set()
+                # Send sentinel to each embedding worker
+                for _ in range(embedding_workers):
+                    preprocess_queue.put(SENTINEL)
         
         # Embedding workers: Generate embeddings from preprocessed data
-        def embedding_worker():
+        def embedding_worker(worker_id):
             try:
-                logger.info("Embedding worker started")
-                while not preprocessing_done.is_set() or not preprocess_queue.empty():
-                    try:
-                        item = preprocess_queue.get(timeout=0.5)
-                    except queue.Empty:
-                        continue
+                logger.info(f"Embedding worker {worker_id} started")
+                while True:
+                    item = preprocess_queue.get()
+                    
+                    # Check for sentinel
+                    if item is SENTINEL:
+                        preprocess_queue.task_done()
+                        logger.info(f"Embedding worker {worker_id}: received sentinel, stopping")
+                        break
                     
                     # Generate embeddings
                     embeddings = self.triton_client.infer(
@@ -339,15 +345,16 @@ class ImageEmbeddingPipeline:
                         'batch_idx': item['batch_idx'],
                     })
                     
-                    logger.debug(f"Embedding worker: processed batch {item['batch_idx']}, embeddings shape={embeddings.shape}")
+                    logger.debug(f"Embedding worker {worker_id}: processed batch {item['batch_idx']}, embeddings shape={embeddings.shape}")
                     preprocess_queue.task_done()
                 
-                logger.info("Embedding worker: processing complete")
+                logger.info(f"Embedding worker {worker_id}: processing complete")
             except Exception as e:
-                logger.error(f"Embedding worker error: {e}")
+                logger.error(f"Embedding worker {worker_id} error: {e}")
                 error_container.append(e)
             finally:
-                embedding_done.set()
+                # Signal completion by putting sentinel in embedding queue
+                embedding_queue.put(SENTINEL)
         
         # Milvus inserter: Batch insert embeddings asynchronously
         def milvus_inserter():
@@ -357,11 +364,16 @@ class ImageEmbeddingPipeline:
                 batch_ids_list = []
                 batch_metadata_list = []
                 inserted_count = 0
+                sentinels_received = 0
                 
-                while not embedding_done.is_set() or not embedding_queue.empty():
-                    try:
-                        item = embedding_queue.get(timeout=0.5)
-                    except queue.Empty:
+                while sentinels_received < embedding_workers:
+                    item = embedding_queue.get()
+                    
+                    # Check for sentinel
+                    if item is SENTINEL:
+                        sentinels_received += 1
+                        embedding_queue.task_done()
+                        logger.debug(f"Milvus inserter: received sentinel {sentinels_received}/{embedding_workers}")
                         continue
                     
                     # Accumulate items
@@ -417,7 +429,7 @@ class ImageEmbeddingPipeline:
         # Start all threads
         producer_thread = threading.Thread(target=producer, name="Producer")
         embedding_threads = [
-            threading.Thread(target=embedding_worker, name=f"EmbeddingWorker-{i}")
+            threading.Thread(target=embedding_worker, args=(i,), name=f"EmbeddingWorker-{i}")
             for i in range(embedding_workers)
         ]
         inserter_thread = threading.Thread(target=milvus_inserter, name="MilvusInserter")
