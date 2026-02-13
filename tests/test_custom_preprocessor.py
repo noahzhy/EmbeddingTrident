@@ -64,10 +64,6 @@ class SimpleJAXPreprocessor(BaseJAXPreprocessor):
         normalized = (resized / 255.0 - self.mean) / self.std
         
         return normalized
-            return self.preprocess_batch(images)
-        else:
-            result = self.preprocess_single(images)
-            return result[np.newaxis, ...]  # Add batch dimension
 
 
 def test_protocol_compliance():
