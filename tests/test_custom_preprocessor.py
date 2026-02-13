@@ -1,31 +1,33 @@
 """
-Test script for custom preprocessor interface.
+Test script for JAX-based custom preprocessor interface.
 
-This test demonstrates how users can create and use custom preprocessors
-with the ImageEmbeddingPipeline.
+This test demonstrates how users can create and use custom JAX preprocessors
+by inheriting from BaseJAXPreprocessor.
 """
 
 import sys
 import os
 import numpy as np
+import jax
+import jax.numpy as jnp
 from typing import Union, List
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.base_preprocessor import ImagePreprocessor
+from src.base_preprocessor import BaseJAXPreprocessor, ImagePreprocessor
 from src.preprocess_jax import JAXImagePreprocessor
 from src.pipeline import ImageEmbeddingPipeline
 from src.config import ServiceConfig
 from loguru import logger
 
 
-class SimplePreprocessor:
+class SimpleJAXPreprocessor(BaseJAXPreprocessor):
     """
-    Example custom preprocessor implementation.
+    Example custom JAX preprocessor implementation.
     
-    This is a minimal preprocessor that demonstrates the required interface.
-    It performs basic resizing and normalization using NumPy.
+    This is a minimal preprocessor that demonstrates how to inherit from
+    BaseJAXPreprocessor and implement custom JAX-based preprocessing logic.
     """
     
     def __init__(
@@ -33,91 +35,35 @@ class SimplePreprocessor:
         image_size=(224, 224),
         mean=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
+        **kwargs
     ):
-        """Initialize the simple preprocessor."""
-        self.image_size = image_size
-        self.mean = np.array(mean, dtype=np.float32).reshape(1, 1, 3)
-        self.std = np.array(std, dtype=np.float32).reshape(1, 1, 3)
-        logger.info(f"SimplePreprocessor initialized with size={image_size}")
+        """Initialize the simple JAX preprocessor."""
+        super().__init__(image_size=image_size, **kwargs)
+        self.mean = jnp.array(mean, dtype=jnp.float32).reshape(1, 1, 3)
+        self.std = jnp.array(std, dtype=jnp.float32).reshape(1, 1, 3)
+        logger.info(f"SimpleJAXPreprocessor initialized with size={image_size}")
     
-    def _resize_image(self, image: np.ndarray) -> np.ndarray:
-        """Resize image using simple interpolation."""
-        from PIL import Image
-        
-        # Convert to PIL for resizing
-        if image.dtype != np.uint8:
-            image_uint8 = (image.clip(0, 255)).astype(np.uint8)
-        else:
-            image_uint8 = image
-        
-        pil_img = Image.fromarray(image_uint8)
-        resized = pil_img.resize(self.image_size, Image.BILINEAR)
-        return np.array(resized, dtype=np.float32)
-    
-    def _normalize_image(self, image: np.ndarray) -> np.ndarray:
-        """Normalize image."""
-        # Convert to [0, 1]
-        image = image / 255.0
-        # Normalize
-        image = (image - self.mean) / self.std
-        return image
-    
-    def preprocess_single(self, image: Union[np.ndarray, str]) -> np.ndarray:
+    def _preprocess_single_jax(self, image: jnp.ndarray) -> jnp.ndarray:
         """
-        Preprocess a single image.
+        JAX-based preprocessing for a single image.
         
         Args:
-            image: Image array (H, W, C) or path/URL to image
+            image: Input image (H, W, C)
             
         Returns:
-            Preprocessed image (H, W, C)
+            Preprocessed image
         """
-        if isinstance(image, str):
-            from PIL import Image
-            img = Image.open(image).convert('RGB')
-            image = np.array(img, dtype=np.float32)
+        # Resize using JAX
+        resized = jax.image.resize(
+            image,
+            shape=(*self.image_size, image.shape[2]),
+            method='bilinear'
+        )
         
-        # Resize
-        resized = self._resize_image(image)
         # Normalize
-        normalized = self._normalize_image(resized)
+        normalized = (resized / 255.0 - self.mean) / self.std
         
         return normalized
-    
-    def preprocess_batch(
-        self,
-        images: List[Union[np.ndarray, str]]
-    ) -> np.ndarray:
-        """
-        Preprocess a batch of images.
-        
-        Args:
-            images: List of image arrays or paths/URLs
-            
-        Returns:
-            Batch of preprocessed images (B, H, W, C)
-        """
-        processed = []
-        for image in images:
-            processed_img = self.preprocess_single(image)
-            processed.append(processed_img)
-        
-        return np.stack(processed, axis=0)
-    
-    def __call__(
-        self,
-        images: Union[str, np.ndarray, List[Union[str, np.ndarray]]]
-    ) -> np.ndarray:
-        """
-        Preprocess images (single or batch).
-        
-        Args:
-            images: Single image or list of images (paths/URLs or arrays)
-            
-        Returns:
-            Preprocessed image(s) with batch dimension
-        """
-        if isinstance(images, list):
             return self.preprocess_batch(images)
         else:
             result = self.preprocess_single(images)
