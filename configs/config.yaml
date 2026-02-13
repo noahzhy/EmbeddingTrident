@@ -34,7 +34,6 @@ collections:
       fields:
         - name: "id"
           type: "INT64"
-          max_length: 256
           primary_key: true
           auto_id: true
         - name: "vector"
