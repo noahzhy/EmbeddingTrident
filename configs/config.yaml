@@ -1,94 +1,44 @@
-# Triton Configuration
-triton:
-  url: "localhost:8000"
-  model_name: "embedding_model"
-  model_version: "1"
-  protocol: "http"  # http or grpc
-  timeout: 60
-  max_retries: 3
-  retry_delay: 1.0
-  input_name: "input"  # Input tensor name in model
-  output_name: "output"  # Output tensor name in model
 
-# Milvus Configuration
-milvus:
+pipelines:
+  jax_mem_fraction: .2
+  # Performance Parameters
+  batch_size: 128                 # 🔥 Increase batch size to saturate GPU
+  num_gpus_per_worker: 0.5        # GPU fraction per Ray Worker
+  worker_pool_size: [1, 2]        # (min, max) workers
+
+triton_server:
+  host: "localhost"
+  port: 8001
+
+milvus_server:
   host: "localhost"
   port: 19530
-  collection_name: "test_collection"
-  embedding_dim: 768
-  vector_field: "vector"
-  index_type: "GPU_IVF_PQ"  # IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT, GPU_IVF_PQ
-  metric_type: "IP"  # L2, IP, COSINE
-  nlist: 2048
-  nprobe: 32
-  M: 32
-  nbits: 8
-  efConstruction: 256
 
-# Collection Configuration for Milvus
-# Detailed collection schema definitions for managing complex Milvus database configurations
+models:
+  - name: "emb_siglip2"
+    inputs:
+      - name: "pixel_values"
+        dtype: "FP32"
+        shape: [-1, 3, 224, 224]
+    outputs:
+      - name: "image_embeds"
+        dtype: "FP32"
+        shape: [-1, 768]
+
 collections:
   - name: "test_collection"
-    description: "Default image embedding collection"
-    schema:
-      fields:
-        - name: "id"
-          type: "INT64"
-          primary_key: true
-          auto_id: true
-        - name: "vector"
-          type: "FLOAT_VECTOR"
-          dim: 768
-        - name: "metadata"
-          type: "JSON"
-    index:
-      field_name: "vector"
-      index_type: "GPU_IVF_FLAT"  # Options: IVF_FLAT, HNSW, FLAT, GPU_IVF_FLAT
-      metric_type: "IP"  # Options: L2, IP, COSINE
-      params:
-        nlist: 2048  # for IVF_FLAT
-        # M: 16  # for HNSW
-        # efConstruction: 256  # for HNSW
-    search_params:
-      nprobe: 32  # for IVF_FLAT
-      # ef: 64  # for HNSW
-
-# Alternative HNSW Configuration
-# For better search quality at the cost of build time:
-#   - name: "image_embeddings_hnsw"
-#     description: "Image embeddings with HNSW index"
-#     schema:
-#       fields:
-#         - name: "id"
-#           type: "INT64"
-#           primary_key: true
-#           auto_id: true
-#         - name: "vector"
-#           type: "FLOAT_VECTOR"
-#           dim: 768
-#         - name: "metadata"
-#           type: "JSON"
-#     index:
-#       field_name: "vector"
-#       index_type: "HNSW"
-#       metric_type: "IP"
-#       params:
-#         M: 16
-#         efConstruction: 256
-#     search_params:
-#       ef: 64
-
-# Preprocessing Configuration
-preprocess:
-  image_size: [224, 224]
-  mean: [0.485, 0.456, 0.406]
-  std: [0.229, 0.224, 0.225]
-  batch_size: 32
-  num_workers: 4
-  data_format: "NCHW"  # Output format: NCHW (channels-first) or NHWC (channels-last)
-  use_gpu: true  # Whether to use GPU for JAX preprocessing (set to true to enable GPU acceleration)
-  jax_platform: 'gpu'  # Specific JAX platform: 'cpu', 'gpu', 'tpu', or null for auto-detection
-
-# Service Configuration
-log_level: "INFO"
-cache_compiled_functions: true
+    fields:
+      - name: "id"
+        type: "INT64"
+        primary_key: true
+        auto_id: true
+      - name: "vector"
+        type: "FLOAT_VECTOR"
+        dim: 768
+        index:
+          type: "GPU_IVF_PQ"
+          metric: "IP"
+          params:
+            nlist: 1024
+            m: 32
+            nbits: 8

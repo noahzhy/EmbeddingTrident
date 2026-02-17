@@ -1,6 +1,6 @@
 name: "embedding_model"
 platform: "onnxruntime_onnx"
-max_batch_size: 64
+max_batch_size: 128
 
 input [
   {
