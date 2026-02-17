@@ -39,6 +39,6 @@ collections:
           type: "GPU_IVF_PQ"
           metric: "IP"
           params:
-            nlist: 1024
+            nlist: 2048
             m: 32
             nbits: 8

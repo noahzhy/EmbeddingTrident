@@ -13,51 +13,68 @@ from milvus_ops import MilvusInserter, build_index_and_load, create_collection_n
 from triton_ops import TritonClient
 
 
-def load_config(config_path):
-    with open(config_path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
+def env(k, d):
+    v = os.getenv(k)
+    if v is None: return d
+    if isinstance(d, bool):  return v.lower() in ("1","true","yes")
+    if isinstance(d, int):   return int(v)
+    if isinstance(d, float): return float(v)
+    if isinstance(d, tuple): return tuple(map(int, v.split(",")))
+    return v
 
-    def first(items, default=None):
-        return items[0] if items else default
 
-    pipelines = raw.get("pipelines", {})
-    triton = raw.get("triton_server", {})
-    milvus = raw.get("milvus_server", {})
-    model = first(raw.get("models", []), {})
-    input_cfg = first(model.get("inputs", []), {})
-    output_cfg = first(model.get("outputs", []), {})
-    collection = first(raw.get("collections", []), {})
-    fields = collection.get("fields", [])
+def load_config(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        r = yaml.safe_load(f) or {}
 
-    primary_field = next((f for f in fields if f.get("primary_key")), {})
-    vector_field = next((f for f in fields if f.get("type") == "FLOAT_VECTOR"), {})
-    index_field = next((f for f in fields if f.get("index")), {})
+    m = (r.get("models") or [{}])[0]
+    i = (m.get("inputs") or [{}])[0]
+    o = (m.get("outputs") or [{}])[0]
+    c = (r.get("collections") or [{}])[0]
+    f = c.get("fields", [])
 
-    output_shape = output_cfg.get("shape") or []
-    vector_dim = vector_field.get("dim")
-    if vector_dim is None and output_shape:
-        vector_dim = output_shape[-1]
+    pk  = next((x for x in f if x.get("primary_key")), {})
+    vec = next((x for x in f if x.get("type") == "FLOAT_VECTOR"), {})
+    idx = next((x for x in f if x.get("index")), {})
+
+    dim = vec.get("dim") or (o.get("shape") or [None])[-1] or 768
 
     return {
-        "JAX_MEM_FRACTION": str(pipelines.get("jax_mem_fraction", 0.2)),
-        "BATCH_SIZE": int(pipelines.get("batch_size", 128)),
-        "NUM_GPUS_PER_WORKER": float(pipelines.get("num_gpus_per_worker", 0.5)),
-        "WORKER_POOL_SIZE": tuple(pipelines.get("worker_pool_size", [1, 2])),
-        "TRITON_URL": f"{triton.get('host', 'localhost')}:{triton.get('port', 8001)}",
-        "MILVUS_HOST": milvus.get("host", "localhost"),
-        "MILVUS_PORT": int(milvus.get("port", 19530)),
-        "MODEL_NAME": model.get("name", "emb_siglip2"),
-        "INPUT_NAME": input_cfg.get("name", "pixel_values"),
-        "INPUT_DTYPE": input_cfg.get("dtype", "FP32"),
-        "INPUT_SHAPE": input_cfg.get("shape") or [-1, 3, 224, 224],
-        "OUTPUT_NAME": output_cfg.get("name", "image_embeds"),
-        "OUTPUT_DTYPE": output_cfg.get("dtype", "FP32"),
-        "COLLECTION_NAME": collection.get("name", "test_collection"),
-        "COLLECTION_FIELDS": fields,
-        "COLLECTION_AUTO_ID": bool(primary_field.get("auto_id", False)),
-        "COLLECTION_VECTOR_DIM": int(vector_dim or 768),
-        "COLLECTION_INDEX_FIELD": index_field.get("name"),
-        "COLLECTION_INDEX_CFG": index_field.get("index"),
+        # pipeline
+        "BATCH_SIZE": env("BATCH_SIZE", r.get("pipelines", {}).get("batch_size", 128)),
+        "NUM_GPUS_PER_WORKER": env(
+            "NUM_GPUS_PER_WORKER", r.get("pipelines", {}).get("num_gpus_per_worker", 1)
+        ),
+        "WORKER_POOL_SIZE": env(
+            "WORKER_POOL_SIZE", tuple(r.get("pipelines", {}).get("worker_pool_size", [1, 2]))
+        ),
+        "JAX_MEM_FRACTION": env(
+            "JAX_MEM_FRACTION", r.get("pipelines", {}).get("jax_mem_fraction", 0.2)
+        ),
+
+        # services
+        "TRITON_URL": env(
+            "TRITON_URL",
+            f"{r.get('triton_server', {}).get('host', 'localhost')}:{r.get('triton_server', {}).get('port', 8001)}",
+        ),
+        "MILVUS_HOST": env("MILVUS_HOST", r.get("milvus_server", {}).get("host", "localhost")),
+        "MILVUS_PORT": env("MILVUS_PORT", r.get("milvus_server", {}).get("port", 19530)),
+
+        # model
+        "MODEL_NAME": env("MODEL_NAME", m.get("name", "emb_siglip2")),
+        "INPUT_NAME": env("INPUT_NAME", i.get("name", "pixel_values")),
+        "INPUT_DTYPE": env("INPUT_DTYPE", i.get("dtype", "FP32")),
+        "INPUT_SHAPE": env("INPUT_SHAPE", tuple(i.get("shape") or [-1, 3, 224, 224])),
+        "OUTPUT_NAME": env("OUTPUT_NAME", o.get("name", "image_embeds")),
+        "OUTPUT_DTYPE": env("OUTPUT_DTYPE", o.get("dtype", "FP32")),
+
+        # collection
+        "COLLECTION_NAME": env("COLLECTION_NAME", c.get("name", "test_collection")),
+        "COLLECTION_VECTOR_DIM": env("VECTOR_DIM", dim),
+        "COLLECTION_AUTO_ID": env("COLLECTION_AUTO_ID", pk.get("auto_id", False)),
+        "COLLECTION_INDEX_FIELD": idx.get("name"),
+        "COLLECTION_INDEX_CFG": idx.get("index"),
+        "COLLECTION_FIELDS": f,
     }
 
 
@@ -115,7 +132,7 @@ class RayEmbeddingPipeline:
 
     def _setup_env(self):
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = self.config["JAX_MEM_FRACTION"]
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(self.config["JAX_MEM_FRACTION"])
         os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 
     def run(self, n_images=5000):
