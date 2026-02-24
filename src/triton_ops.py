@@ -1,7 +1,8 @@
+from tritonclient.grpc import InferenceServerClient, InferInput
+
+
 class TritonClient:
     def __init__(self, url, model_name, input_name, input_dtype, output_name):
-        from tritonclient.grpc import InferenceServerClient, InferInput
-
         self._InferInput = InferInput
         self._client = InferenceServerClient(url=url, verbose=False)
         if not self._client.is_server_live():
