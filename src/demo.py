@@ -105,15 +105,16 @@ class Processor:
         logger.debug("[Worker {}] Ready.", os.getpid())
 
     def __call__(self, batch):
+        # preprocess
         imgs_jax = jnp.array(np.stack(batch["image"]))
         proc_imgs_jax = self.preprocess_batch(imgs_jax)
         proc_imgs = np.array(proc_imgs_jax)
-
+        # triton inference
         vecs = self.triton.infer(proc_imgs)
-
+        vecs = vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
+        # milvus insert
         ids = batch["id"].tolist() if not self.config["COLLECTION_AUTO_ID"] else None
         self.milvus.insert(ids, vecs)
-
         return {"status": ["ok"] * len(vecs)}
 
     def __del__(self):
@@ -189,7 +190,6 @@ class RayEmbeddingPipeline:
         logger.info("Total samples: {}", total_samples)
         logger.info("Time taken  : {:.2f} s", duration)
         logger.info("Throughput  : {:.2f} img/s", tps)
-        logger.info("{}", "=" * 40)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 services:
   etcd:
     container_name: milvus-etcd
-    image: etcd:v3.5.5
+    image: ccr.ccs.tencentyun.com/3rd-proxy/etcd:v3.5.5
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -20,7 +20,7 @@ services:
 
   minio:
     container_name: milvus-minio
-    image: minio:RELEASE.2023-03-20T20-16-18Z
+    image: ccr.ccs.tencentyun.com/3rd-proxy/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -38,7 +38,7 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: milvus:v2.4.23-gpu
+    image: ccr.ccs.tencentyun.com/3rd-proxy/milvus:v2.4.23-gpu
     command: ["milvus", "run", "standalone"]
     security_opt:
     - seccomp:unconfined
