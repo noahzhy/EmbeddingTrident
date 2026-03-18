@@ -1,0 +1,45 @@
+name: "unit_postprocess"
+backend: "python"
+max_batch_size: 0
+
+input [
+  {
+    name: "raw_output"
+    data_type: TYPE_FP32
+    dims: [1, -1, -1]
+  },
+  {
+    name: "params"
+    data_type: TYPE_STRING
+    dims: [1]
+  }
+]
+
+output [
+  {
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [1, -1, 6]
+  }
+]
+
+parameters: {
+  key: "model_type"
+  value: { string_value: "yolov5" }
+}
+parameters: {
+  key: "score_thresh"
+  value: { string_value: "0.5" }
+}
+parameters: {
+  key: "iou_thresh"
+  value: { string_value: "0.5" }
+}
+parameters: {
+  key: "top_k"
+  value: { string_value: "-1" }
+}
+parameters: {
+  key: "min_area"
+  value: { string_value: "-1" }
+}

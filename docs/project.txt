@@ -1,0 +1,238 @@
+Total projects: 59
+========================================
+Project: China Drink (ID: 1)
+   UNIT: PriceTag-Unit, ChinaDrink-Unit, ChinaDrink-TBP-Unit, CEA-CutOpenBox-Unit
+    SKU: ChinaDrink-Sku, ChinaDrink-Mobile-Sku
+
+Project: CCTH (ID: 2)
+   UNIT: PriceTag-Unit, CCTH-Unit, Posing-Unit, CCTH-Vending-Unit, CCTH-Price-Unit
+    SKU: CCTH-Sku, CCTH-SKU-Test
+
+Project: Sloth-CN (ID: 3)
+   UNIT: Universal-Unit, Sloth-Unit, Sloth-Fridge-Seg
+    SKU: Sloth-CN-Sku, Sloth-walmart-SKU, Keep_out_Normal, mini_model
+
+Project: HPC-CN (ID: 4)
+   UNIT: PriceTag-Unit, Universal-Unit, OCR-Unit, JJ-CN-Unit
+    SKU: HPC-CN-Sku, HPC-CN-HC-FEM, HPC-CN-Gillette, HPC-CN-Recopy-Sku
+
+Project: Price Tag (ID: 5)
+   UNIT: PriceTag-Unit, OCR-Unit
+    SKU: (none)
+
+Project: HPC-PH (ID: 6)
+   UNIT: HPC-Unit
+    SKU: HPC-PH-Sku, Character-Sku
+
+Project: Instant Noodles (ID: 7)
+   UNIT: InstantNoodles-CN-Unit
+    SKU: InstantNoodles-CN-Sku
+
+Project: HPC-US (ID: 8)
+   UNIT: HPC-Unit, Empty_Space-Unit, Haning-Box-Unit, REA-Fridge-Seg, OOSEmptySpace-Unit, HPC-US-Display-UNIT
+    SKU: HPC-US-Sku, HPC-US-Scene-Display-Sku
+
+Project: Sloth-US (ID: 9)
+   UNIT: Sloth-Unit
+    SKU: Sloth-US-Sku
+
+Project: Universal Unit (ID: 10)
+   UNIT: Universal-Unit
+    SKU: (none)
+
+Project: LabStore (ID: 11)
+   UNIT: (none)
+    SKU: (none)
+
+Project: Sloth-MX (ID: 13)
+   UNIT: Sloth-Unit
+    SKU: Sloth-MX-Sku
+
+Project: SBD (ID: 14)
+   UNIT: SBD-POSM-FEM-Unit, SBD-POSM-PCC-Unit
+    SKU: danone-sku
+
+Project: Test Project (ID: 15)
+   UNIT: HPC-Unit, PriceTag-Unit, OCR-Unit, ChinaDrink-Unit, Sloth-Unit, Cigarette-Unit, Test-Unit, SBD-POSM-FEM-Unit, JJ-CN-Seg, POSM-infer-unit
+    SKU: ChinaDrink-Sku, Sloth-CN-Sku, HPC-US-Sku, Sloth-MX-Sku, Test-Sku, HPC-PH-Sku, Character-Sku
+
+Project: SKU分割 (ID: 16)
+   UNIT: (none)
+    SKU: (none)
+
+Project: Basket Recognition (ID: 17)
+   UNIT: Basket-Unit
+    SKU: (none)
+
+Project: Sloth-VN (ID: 18)
+   UNIT: Sloth-Unit
+    SKU: Sloth-VN-Sku
+
+Project: Upright-Sideways-2-class (ID: 19)
+   UNIT: (none)
+    SKU: Upright-Sideways
+
+Project: Daily tasks (ID: 20)
+   UNIT: (none)
+    SKU: (none)
+
+Project: CCTH_FOB (ID: 21)
+   UNIT: (none)
+    SKU: CCTH-SKU-Test
+
+Project: test (ID: 22)
+   UNIT: PriceTag-Unit, OCR-Unit, Test-Unit, Omni-POSM
+    SKU: Test-Sku, Blur-Classifier, Keep_out_Normal, Custom-Sku, display-sku
+
+Project: TEST-CAT&DOG (ID: 24)
+   UNIT: (none)
+    SKU: (none)
+
+Project: Sloth-CCTH (ID: 25)
+   UNIT: Sloth-Unit
+    SKU: Sloth-TH-Sku
+
+Project: JJ-CN-pharmacy (ID: 26)
+   UNIT: PriceTag-Unit, OCR-Unit, JJ-CN-Unit, JJCN-PriceTag-Unit, JJ-CN-Seg, POSM-infer-unit
+    SKU: JJ-CN-Sku
+
+Project: Myanmar Coke  (ID: 28)
+   UNIT: CokeMyanmmar-Unit, CokeMyanmmar-TBP-Unit, REA-Fridge-Seg
+    SKU: Drinks-Myanmar-Sku
+
+Project: test 聚类 (ID: 29)
+   UNIT: (none)
+    SKU: (none)
+
+Project: Sloth-统一本品 (ID: 30)
+   UNIT: (none)
+    SKU: Uni-Drinks-Sku
+
+Project: 达能展会 (ID: 31)
+   UNIT: HPC-Unit, ChinaDrink-Unit, ChinaDrink-TBP-Unit, danone-pocm-unit
+    SKU: ChinaDrink-Sku, danone-sku, Danone-POCM-Sku
+
+Project: HPC-BR (ID: 32)
+   UNIT: HPC-Unit, Haning-Box-Unit
+    SKU: HPC-BR-Sku
+
+Project: HPC-US-Baby (ID: 33)
+   UNIT: (none)
+    SKU: (none)
+
+Project: HPC-US-Fabric (ID: 34)
+   UNIT: (none)
+    SKU: (none)
+
+Project: HPC-US-Personal (ID: 35)
+   UNIT: (none)
+    SKU: (none)
+
+Project: 蓝胖子聚类test (ID: 36)
+   UNIT: (none)
+    SKU: Sloth-CN-Sku
+
+Project: Sloth-EU (ID: 37)
+   UNIT: Sloth-Unit
+    SKU: Sloth-Poland-Sku
+
+Project: Sloth-Singapore (ID: 38)
+   UNIT: Sloth-Unit
+    SKU: Sloth-SG-Sku
+
+Project: Doordash (ID: 39)
+   UNIT: HPC-Unit, CCTH-Unit, Drinks_US_Unit, Drinks_US_TBP_Unit, Drinks-US-Mini-Unit, OOSEmptySpace-Unit
+    SKU: Drinks_US_Sku
+
+Project: GCCB (ID: 40)
+   UNIT: PriceTag-Unit, GCCB-Unit, Price-GCCB-Unit
+    SKU: Drinks-GCC-SKU, Price-GCCB-SKU
+
+Project: HPC-CA (ID: 41)
+   UNIT: HPC-Unit, Haning-Box-Unit
+    SKU: HPC-CA-Sku
+
+Project: Kenvue TH (ID: 42)
+   UNIT: HPC-Unit
+    SKU: HPC-TH-SKU
+
+Project: pitching 专用 (ID: 43)
+   UNIT: HPC-Unit, InstantNoodles-CN-Unit, Universal-Unit, ChinaDrink-Unit, ChinaDrink-TBP-Unit, CCTH-Unit
+    SKU: (none)
+
+Project: Suntory MY (ID: 44)
+   UNIT: HPC-Unit, Suntory-Unit
+    SKU: Suntory-Sku
+
+Project: ACGBOX (ID: 45)
+   UNIT: Suntory-Unit, ACG-Unit
+    SKU: ACGBox-Sku
+
+Project: Carlsberg-Laos (ID: 46)
+   UNIT: Sloth-Unit
+    SKU: Sloth-Laos-Sku
+
+Project: 999 CN (ID: 47)
+   UNIT: JJ-CN-Unit, 999-pricetag-unit
+    SKU: 999CN-Sku
+
+Project: Kenvue JP (ID: 48)
+   UNIT: HPC-Unit
+    SKU: KENVUE-JP-Sku
+
+Project: Kenvue KR (ID: 49)
+   UNIT: HPC-Unit
+    SKU: HPC-KR-Sku
+
+Project: ABI (ID: 50)
+   UNIT: PriceTag-Unit, ChinaDrink-Unit, Test-Unit, ABI-Unit, ABI-POCM-Unit, ABI-Promotion-Unit, ABI_POCM_KeyWords_Unit
+    SKU: ABI-Sku, ABI-Scene-Sku, ABI-Copy-Sku, ABI-POCM-Sku
+
+Project: 亨氏 (ID: 51)
+   UNIT: PriceTag-Unit, ACG-Unit
+    SKU: ACGBox-Sku
+
+Project: MCS-Coke (ID: 52)
+   UNIT: (none)
+    SKU: (none)
+
+Project: MCS_Coke (ID: 53)
+   UNIT: ChinaDrink-Unit, CCTH-Unit
+    SKU: MCS-Sku
+
+Project: 消费者教育 (ID: 54)
+   UNIT: (none)
+    SKU: (none)
+
+Project: Suntory SG (ID: 55)
+   UNIT: Suntory-Unit
+    SKU: Suntory-SG-Sku
+
+Project: Suntory TW (ID: 56)
+   UNIT: Suntory-Unit
+    SKU: Suntory-TW-Sku
+
+Project: kenvue vn  (ID: 57)
+   UNIT: HPC-Unit
+    SKU: HPC-VN-Sku
+
+Project: haadthip (ID: 58)
+   UNIT: CCTH-Unit
+    SKU: CCTH-Sku, Haadthip-Sku, Haadthip-Sku-Empty-Space
+
+Project: Carlsberg (ID: 59)
+   UNIT: ABI-Unit, Carlsberg-CutCase-Unit, Carlsberg-POCM-Unit
+    SKU: ABI-Sku, Carlsberg-POCM-Sku, Carlsberg-Posing, Carlsberg-Recopy
+
+Project: HPC-JP (ID: 60)
+   UNIT: HPC-Unit, HPC-JP-POSM-UNIT, HPC-JP-Unit, HPC-jp-Big-Posm-unit
+    SKU: HPC-JP-Sku, HPC-JP-POSM-Sku
+
+Project: HPC-MCS (ID: 61)
+   UNIT: HPC-Unit
+    SKU: HPC-MCS-Sku
+
+Project: Suntory ES (ID: 62)
+   UNIT: CCTH-Unit
+    SKU: Suntory-ES-Sku
+

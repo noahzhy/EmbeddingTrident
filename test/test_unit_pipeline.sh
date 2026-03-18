@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# 1️⃣ 启动 pipeline（后台）
+python /home/haoyu/projects/ray_data/src/pipelines/unit_infer_pipeline.py > pipeline.log 2>&1 &
+
+PIPELINE_PID=$!
+echo "Pipeline PID: $PIPELINE_PID"
+
+# 2️⃣ 等待服务启动（很关键）
+sleep 15
+
+# 3️⃣ 发请求
+bash scripts/req_unit_image.sh > data/unit_res.json
+
+sleep 2
+
+# 4️⃣ 可视化
+python /home/haoyu/projects/ray_data/test/vis.py
+
+# 5️⃣ 测试 crop
+python /home/haoyu/projects/ray_data/src/nodes/crop_node.py
+
+# 6️⃣ 可选：结束服务
+kill $PIPELINE_PID

@@ -1,0 +1,154 @@
+# import torch
+# import torch.nn.functional as F
+import numpy as np
+
+import ray
+from ray import serve
+
+import cv2
+import json
+from pathlib import Path
+
+import sys
+import os
+# add ../..
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+from src.nodes.image_node import fast_letterbox
+
+
+class CropNode:
+    """
+    专为 Ray DAG 优化的纯单线程 Numpy/OpenCV CropNode
+    - 零多线程，完美契合 Ray 的底层进程调度
+    - 向量化处理坐标反归一化与越界截断
+    - 连续内存预分配，彻底消除 append 和 stack 的显存碎片与拷贝开销
+    """
+    def __init__(
+        self,
+        target_size=(224, 224),
+        pad_value: int = 114,
+    ):
+        self.target_size = target_size
+        self.pad_value = pad_value
+
+    def __call__(self, image: np.ndarray, boxes: np.ndarray):
+        H, W, C = image.shape
+        N = boxes.shape[0]
+
+        if N == 0:
+            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), boxes
+
+        # 1. 向量化反归一化 (直接使用 numpy 底层 C 循环，极快)
+        boxes_xyxy = boxes[:, :4].copy()
+        if boxes_xyxy.max() <= 1.0:
+            boxes_xyxy[:, [0, 2]] *= W
+            boxes_xyxy[:, [1, 3]] *= H
+
+        # 向量化越界截断 (in-place 原地修改，省内存)
+        np.clip(boxes_xyxy[:, 0], 0, W, out=boxes_xyxy[:, 0])
+        np.clip(boxes_xyxy[:, 1], 0, H, out=boxes_xyxy[:, 1])
+        np.clip(boxes_xyxy[:, 2], 0, W, out=boxes_xyxy[:, 2])
+        np.clip(boxes_xyxy[:, 3], 0, H, out=boxes_xyxy[:, 3])
+
+        boxes_int = boxes_xyxy.astype(np.int32)
+
+        # 2. 向量化过滤无效框 (避免在 Python 循环中做 if 判断)
+        valid_mask = (boxes_int[:, 2] > boxes_int[:, 0]) & (boxes_int[:, 3] > boxes_int[:, 1])
+        valid_indices = np.where(valid_mask)[0]
+        valid_N = len(valid_indices)
+
+        if valid_N == 0:
+            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), np.empty((0, 6), dtype=np.float32)
+
+        # 3. 【核心提速点】预先分配好整块连续的内存
+        crops_array = np.empty((valid_N, C, self.target_size[0], self.target_size[1]), dtype=np.float32)
+        cv2_target = (self.target_size[1], self.target_size[0])
+
+        # 4. 纯单线程紧凑循环
+        for out_idx, idx in enumerate(valid_indices):
+            x1, y1, x2, y2 = boxes_int[idx]
+            crop = image[y1:y2, x1:x2]
+            resized = fast_letterbox(crop, size=self.target_size, pad_value=self.pad_value)
+            # 转 CHW, 归一化，并直接按索引写入预分配的内存块中
+            crops_array[out_idx] = resized.transpose(2, 0, 1).astype(np.float32) / 255.0
+
+        return crops_array, boxes[valid_indices]
+
+
+@serve.deployment()
+class CropDeployment:
+    """
+    Ray Serve Crop Deployment (去除了 PyTorch 依赖)
+    """
+    def __init__(self, target_size=(224, 224)):
+        self.node = CropNode(target_size=target_size)
+
+    async def __call__(self, request: dict):
+        """
+        request:
+            image: np.ndarray HWC uint8
+            boxes: np.ndarray (N,6) xyxy+score+class
+        """
+        img_np = request["image"]
+        boxes = request.get("boxes", np.empty((0, 6), dtype=np.float32))
+
+        # 直接传入 NumPy 数组处理
+        crops, valid_boxes = self.node(img_np, boxes)
+
+        return {
+            "crops": crops,
+            "boxes": valid_boxes
+        }
+
+
+if __name__ == "__main__":
+    node = CropNode(target_size=(224, 224))
+
+    repo_root = Path(__file__).resolve().parents[2]
+    image_path = repo_root / "data" / "images" / "unit_test.jpg"
+    detection_json_path = repo_root / "data" / "unit_res.json"
+    debug_dir = repo_root / "data" / "debug_crops"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+
+    image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        raise FileNotFoundError(f"Failed to read image: {image_path}")
+    image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    with detection_json_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    detections = payload.get("detections", [])
+    boxes_list = []
+    for det in detections:
+        bbox = det.get("bbox", [])
+        if len(bbox) != 4:
+            continue
+        boxes_list.append(
+            [
+                float(bbox[0]),
+                float(bbox[1]),
+                float(bbox[2]),
+                float(bbox[3]),
+                float(det.get("score", 0.0)),
+                float(det.get("class_id", -1)),
+            ]
+        )
+
+    boxes = np.asarray(boxes_list, dtype=np.float32)
+
+    crops, valid_boxes = node(image, boxes)
+
+    np.save(str(debug_dir / "valid_boxes.npy"), valid_boxes)
+    for i, crop_chw in enumerate(crops):
+        crop_hwc = np.transpose(crop_chw, (1, 2, 0))
+        crop_u8 = np.clip(crop_hwc * 255.0, 0, 255).astype(np.uint8)
+        crop_bgr = cv2.cvtColor(crop_u8, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(str(debug_dir / f"crop_{i:04d}.jpg"), crop_bgr)
+
+    print(f"Input image: {image_path}")
+    print(f"Input detections: {len(detections)}")
+    print("Crops shape:", crops.shape)
+    print("Valid boxes shape:", valid_boxes.shape)
+    print(f"Saved debug crops to: {debug_dir}")

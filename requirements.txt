@@ -1,0 +1,22 @@
+# Core dependencies
+numpy>=1.24.0
+onnx>=1.16.0
+Pillow>=10.0.0
+requests>=2.31.0
+ray[data,serve]
+
+# Triton client
+tritonclient[all]>=2.40.0
+
+# Milvus
+pymilvus>=2.3.0
+
+# Configuration
+pyyaml>=6.0
+
+# Logging
+loguru>=0.7.0
+tenacity>=8.2.0
+
+# Image decoding
+PyTurboJPEG<2.0
