@@ -1,5 +1,9 @@
 #!/bin/bash
 
+rm -rf data/debug_crops
+rm -rf data/unit_res.json
+rm -rf data/unit_test_detections.jpg
+
 # 1️⃣ 启动 pipeline（后台）
 python /home/haoyu/projects/ray_data/src/pipelines/unit_infer_pipeline.py > pipeline.log 2>&1 &
 
