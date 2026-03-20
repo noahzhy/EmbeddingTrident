@@ -19,6 +19,8 @@ def main():
         data = json.load(f)
     detections = data.get("detections", [])
 
+    print(f"Loaded {len(detections)} detections from {json_path}")
+
     for det in detections:
         bbox = det["bbox"]
         score = det["score"]

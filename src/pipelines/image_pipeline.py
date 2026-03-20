@@ -35,26 +35,20 @@ class ImagePipeline:
         self.letterbox = letterbox
         self.normalizer = normalizer
 
-    async def __call__(self, url: str, return_meta: bool = False) -> Dict[str, Any]:
+    async def __call__(self, url: str) -> Dict[str, Any]:
         # 1. Load image
         img = await self.loader.remote(url)
 
         # 2. Letterbox
-        if return_meta:
-            img_padded, meta = await self.letterbox.remote(img, return_meta=True)
-        else:
-            img_padded = await self.letterbox.remote(img, return_meta=False)
-            meta = {}
+        img_padded, meta = await self.letterbox.remote(img)
 
         # 3. Normalize
         final_tensor = await self.normalizer.remote(img_padded)
 
-        if return_meta:
-            return {
-                "image": final_tensor,
-                **meta
-            }
-        return {"image": final_tensor}
+        return {
+            "image": final_tensor,
+            **meta
+        }
 
 
 if __name__ == "__main__":
@@ -93,7 +87,7 @@ if __name__ == "__main__":
 
     try:
         # Call the pipeline
-        response = handle.remote(test_url, return_meta=True)
+        response = handle.remote(test_url)
         result = response.result()
 
         image_data = result["image"]

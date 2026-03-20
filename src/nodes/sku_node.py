@@ -23,7 +23,6 @@ SKU_MODEL_NAME = "Suntory-ES-Sku"
 
 
 @serve.deployment(
-    num_replicas=2,
     max_ongoing_requests=128,
     ray_actor_options={"num_cpus": 1},
 )

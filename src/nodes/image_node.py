@@ -123,7 +123,7 @@ def _decode_image(src: str, data: Union[bytes, np.ndarray]) -> np.ndarray:
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
-def fast_letterbox(img: np.ndarray, size=(224, 224), pad_value=114, return_meta=False):
+def fast_letterbox(img: np.ndarray, size=(224, 224), pad_value=114):
     h, w = img.shape[:2]
     th, tw = size
     r = min(th / h, tw / w)
@@ -140,13 +140,11 @@ def fast_letterbox(img: np.ndarray, size=(224, 224), pad_value=114, return_meta=
         img, top, bottom, left, right,
         cv2.BORDER_CONSTANT, value=(pad_value, pad_value, pad_value),
     )
-    if return_meta:
-        return img, {
-            "input_shape": [int(th), int(tw)],
-            "orig_shape": [int(h), int(w)],
-            "pad_info": [float(left), float(top), float(r)],
-        }
-    return img
+    return img, {
+        "input_shape": [int(th), int(tw)],
+        "orig_shape": [int(h), int(w)],
+        "pad_info": [float(left), float(top), float(r)],
+    }
 
 
 @serve.deployment(
@@ -183,12 +181,11 @@ class LetterboxNode:
         self.target_size = target_size
         self.pad_value = pad_value
 
-    async def __call__(self, img: np.ndarray, return_meta: bool = False) -> Any:
+    async def __call__(self, img: np.ndarray) -> Any:
         return fast_letterbox(
             img,
             size=self.target_size,
             pad_value=self.pad_value,
-            return_meta=return_meta
         )
 
 

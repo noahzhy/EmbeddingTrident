@@ -20,10 +20,12 @@ from src.pipelines.model_infer_pipeline import ModelInferPipeline
 if __name__ == "__main__":
     if not ray.is_initialized():
         try:
-            ray.init(address="auto")
+            ray.init(
+                address="auto",
+                _metrics_export_port=9090,
+            )
         except Exception:
             ray.init()
-
 
     serve.start(
         detached=True,
@@ -33,45 +35,58 @@ if __name__ == "__main__":
         },
     )
 
-    print("\n===== Unit inference pipeline testing =====")
-    preprocess = ImagePipeline.bind(
-        ImageLoaderNode.bind(io_workers=16),
-        LetterboxNode.bind(target_size=(960, 960), return_meta=True),
-        NormalizationNode.bind(),
-    )
+    image_loader = ImageLoaderNode.bind(io_workers=16)
+    letterbox_960 = LetterboxNode.bind(target_size=(960, 960))
+    letterbox_224 = LetterboxNode.bind(target_size=(224, 224))
+    normalization = NormalizationNode.bind()
+
     unit_infer = UnitNode.bind(
         triton_host="localhost",
         triton_port=8001,
         model_name="unit_ensemble",
-    )
-
-    # dag
-    dag_unit_app = ModelInferPipeline.bind(
-        preprocess,
-        unit_infer,
-    )
-
-    serve.run(dag_unit_app, route_prefix="/unit")
-
-
-    print("\n===== SKU inference pipeline testing =====")
-    preprocess = ImagePipeline.bind(
-        ImageLoaderNode.bind(io_workers=16),
-        LetterboxNode.bind(target_size=(224, 224)),
-        NormalizationNode.bind(),
     )
     sku_infer = SkuNode.bind(
         triton_host="localhost",
         triton_port=8001,
         model_name="Suntory-ES-Sku",
     )
-    dag_sku_app = ModelInferPipeline.bind(
-        preprocess,
+
+    print("\n===== Unit inference pipeline =====")
+    unit_preprocess = ImagePipeline.bind(
+        image_loader,
+        letterbox_960,
+        normalization,
+    )
+    dag_unit = ModelInferPipeline.bind(
+        unit_preprocess,
+        unit_infer,
+    )
+
+    print("\n===== SKU inference pipeline =====")
+    sku_preprocess = ImagePipeline.bind(
+        image_loader,
+        letterbox_224,
+        normalization,
+    )
+    dag_sku = ModelInferPipeline.bind(
+        sku_preprocess,
         sku_infer,
     )
 
-    serve.run(dag_sku_app, route_prefix="/sku")
-
+    serve.run_many(
+        [
+            serve.RunTarget(
+                target=dag_unit,
+                name="dag_unit",
+                route_prefix="/unit",
+            ),
+            serve.RunTarget(
+                target=dag_sku,
+                name="dag_sku",
+                route_prefix="/sku",
+            ),
+        ]
+    )
 
     print("\n===== Dashboard running (Ctrl+C to exit) =====")
     try:
@@ -79,4 +94,3 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("Exiting...")
-

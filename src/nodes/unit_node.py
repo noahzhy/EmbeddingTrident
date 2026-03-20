@@ -28,7 +28,6 @@ UnitPayload = Tuple[np.ndarray, Dict[str, Any], UnitParamsSignature]
 
 
 @serve.deployment(
-    num_replicas=2,
     max_ongoing_requests=32,
     ray_actor_options={"num_cpus": 1},
 )

@@ -1,18 +1,26 @@
-# curl -X POST "http://127.0.0.1:2866/" \
-# -H "Content-Type: application/json" \
-# -d '{
-#     "image_url": "https://f-pms-api.clobotics.cn/v/ed10bebc411f5edfcc5338f6a6a760f0.jpg"
-# }'
+#!/bin/bash
 
+ENDPOINT="http://0.0.0.0:2866/unit"
 
-# seq 1 64 | xargs -n1 -P4 -I{} curl -s -X POST "http://127.0.0.1:2866/" \
-# -H "Content-Type: application/json" \
-# -d '{"image_url":"https://f-pms-api.clobotics.cn/v/ed10bebc411f5edfcc5338f6a6a760f0.jpg"}'
+echo "==================================="
+echo "发送单张图片请求 (image_url)"
+echo "==================================="
+curl -X POST "${ENDPOINT}" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "image_url": "data/images/unit_test.jpg"
+         }'
 
+# echo -e "\n\n==================================="
+# echo "发送多张图片批量请求 (image_urls)"
+# echo "==================================="
+# curl -X POST "${ENDPOINT}" \
+#      -H "Content-Type: application/json" \
+#      -d '{
+#            "image_urls": [
+#              "data/images/4653849.png",
+#              "data/debug_crops/crop_0001.jpg"
+#            ]
+#          }'
 
-# data/images/4653849.png
-
-seq 1 1 | xargs -n1 -P1 -I{} curl -s -X POST "http://localhost:2867/" \
--H "Content-Type: application/json" \
--d '{"image_url":"data/images/unit_test.jpg"}'
-
+echo -e "\n\n请求完成！"
