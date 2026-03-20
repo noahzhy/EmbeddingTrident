@@ -112,8 +112,8 @@ class SkuNode:
     async def __call__(self, image: np.ndarray) -> Union[Dict, List[Dict]]:
         """
         Accepts either:
-          - a single 3D image [C, H, W]  → returns a single Dict
-          - a batch of 4D images [N, C, H, W] → returns a List[Dict]
+        - a single 3D image [C, H, W]  → returns a single Dict
+        - a batch of 4D images [N, C, H, W] → returns a List[Dict]
         """
         if not isinstance(image, np.ndarray):
             raise TypeError("SkuNode expects numpy.ndarray input.")
@@ -158,10 +158,18 @@ if __name__ == "__main__":
     finally:
         pass
 
-    # Test 2: single 4D batch array [N, C, H, W]
-    images = np.random.rand(32, 3, 224, 224).astype(np.float32)
+    import cv2
+    # load all images from a directory and test batch inference
+    im_dir = "data/debug_crops"
+    images = [
+        cv2.imread(os.path.join(im_dir, im_path))[:, :, ::-1]
+        .transpose(2, 0, 1).astype(np.float32) / 255.0
+        for im_path in sorted(os.listdir(im_dir))
+        if im_path.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+    im_np = np.stack(images)  # shape [N, C, H, W]
     try:
-        results = handle.remote(images).result()
+        results = handle.remote(im_np).result()
         print("Test 2 - Inference result count:", len(results))
         print("Test 2 - Sample result:", results[0] if results else None)
     finally:

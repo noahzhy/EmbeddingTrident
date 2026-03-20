@@ -3,8 +3,7 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import asyncio
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import ray
 import numpy as np
@@ -23,6 +22,9 @@ TRITON_HOST = "localhost"
 TRITON_PORT = 8001
 UNIT_MODEL_NAME = "CCTH-Unit"
 UNIT_MODEL_TYPE = "yolov5"
+
+UnitParamsSignature = Tuple[str, float, float, float, float, float, float, float]
+UnitPayload = Tuple[np.ndarray, Dict[str, Any], UnitParamsSignature]
 
 
 @serve.deployment(
@@ -49,6 +51,24 @@ class UnitNode:
         self._batch_supported: Optional[bool] = None
 
     @staticmethod
+    def _build_params_signature(
+        model_type: str,
+        input_shape: List[float],
+        orig_shape: List[float],
+        pad_info: List[float],
+    ) -> UnitParamsSignature:
+        return (
+            model_type,
+            float(input_shape[0]),
+            float(input_shape[1]),
+            float(orig_shape[0]),
+            float(orig_shape[1]),
+            float(pad_info[0]),
+            float(pad_info[1]),
+            float(pad_info[2]),
+        )
+
+    @staticmethod
     def _to_float_list(value: Any, expected_len: int) -> Optional[List[float]]:
         if value is None:
             return None
@@ -56,7 +76,10 @@ class UnitNode:
             return [float(value[i]) for i in range(expected_len)]
         return None
 
-    def _build_payload(self, item: Any) -> Dict[str, Any]:
+    def _build_payload(
+        self,
+        item: Any,
+    ) -> UnitPayload:
         if isinstance(item, dict):
             if "image" not in item:
                 raise ValueError("UnitNode expects key 'image' when input payload is a dict")
@@ -69,6 +92,11 @@ class UnitNode:
             input_shape = None
             orig_shape = None
             pad_info = None
+
+        if image.ndim != 3:
+            raise ValueError(
+                f"Each image must have shape [C,H,W] or [H,W,C], got {image.shape}."
+            )
 
         if input_shape is None and image.ndim >= 3:
             input_shape = [float(image.shape[-2]), float(image.shape[-1])]
@@ -93,10 +121,14 @@ class UnitNode:
             "orig_shape_w": orig_shape[1],
         }
 
-        return {
-            "image": image,
-            "params": params,
-        }
+        params_signature = self._build_params_signature(
+            model_type=self.model_type,
+            input_shape=input_shape,
+            orig_shape=orig_shape,
+            pad_info=pad_info,
+        )
+
+        return image, params, params_signature
 
     @staticmethod
     def post_process(raw_results: np.ndarray) -> List[List[Dict[str, Any]]]:
@@ -147,10 +179,11 @@ class UnitNode:
 
         return batch_results
 
-    async def _infer_single(self, item: Any) -> Dict:
-        payload = self._build_payload(item)
-        image = payload["image"]
-        params = payload["params"]
+    async def _infer_single_payload(
+        self,
+        payload: UnitPayload,
+    ) -> Dict:
+        image, params, _ = payload
 
         single_raw = await self.triton_client.infer_async(
             np.expand_dims(image, axis=0),
@@ -162,8 +195,16 @@ class UnitNode:
             "detections": detections,
         }
 
-    async def _infer_singles_concurrent(self, inputs: List[Any]) -> List[Dict]:
-        tasks = [self._infer_single(item) for item in inputs]
+    async def _infer_payloads_concurrent(
+        self,
+        payloads: List[UnitPayload],
+    ) -> List[Dict]:
+        if not payloads:
+            return []
+        if len(payloads) == 1:
+            return [await self._infer_single_payload(payloads[0])]
+
+        tasks = [self._infer_single_payload(payload) for payload in payloads]
         return await asyncio.gather(*tasks)
 
     @batch(max_batch_size=8, batch_wait_timeout_s=0.01)
@@ -171,23 +212,28 @@ class UnitNode:
         if not inputs:
             return []
 
+        payloads = [self._build_payload(item) for item in inputs]
+
+        if len(payloads) == 1:
+            return [await self._infer_single_payload(payloads[0])]
+
         # If the model does not support true batch outputs, skip the wasted batch call.
         if self._batch_supported is False:
-            return await self._infer_singles_concurrent(inputs)
+            return await self._infer_payloads_concurrent(payloads)
 
-        payloads = [self._build_payload(item) for item in inputs]
-        params_list = [payload["params"] for payload in payloads]
-
-        first_params_json = json.dumps(params_list[0], sort_keys=True)
-        has_mixed_params = any(
-            json.dumps(p, sort_keys=True) != first_params_json for p in params_list[1:]
-        )
+        first_signature = payloads[0][2]
+        has_mixed_params = any(payload[2] != first_signature for payload in payloads[1:])
         if has_mixed_params:
-            self._batch_supported = False
-            return await self._infer_singles_concurrent(inputs)
+            # A Triton request can only carry one params payload, so mixed runtime
+            # params must be downgraded to per-sample inference for this batch.
+            return await self._infer_payloads_concurrent(payloads)
 
-        input_array = np.stack([payload["image"] for payload in payloads])
-        params = params_list[0]
+        try:
+            input_array = np.stack([payload[0] for payload in payloads])
+        except ValueError:
+            return await self._infer_payloads_concurrent(payloads)
+
+        params = payloads[0][1]
 
         raw_results = await self.triton_client.infer_async(
             input_array,
@@ -198,13 +244,25 @@ class UnitNode:
         # Some models ignore batching and return detections for a single image only.
         if len(detections_batch) != len(inputs):
             self._batch_supported = False
-            return await self._infer_singles_concurrent(inputs)
+            return await self._infer_payloads_concurrent(payloads)
 
         self._batch_supported = True
 
         return [{"detections": detections} for detections in detections_batch]
 
-    async def __call__(self, image: Any) -> Dict:
+    async def __call__(self, image: Any) -> Union[Dict, List[Dict]]:
+        if isinstance(image, np.ndarray):
+            if image.ndim == 4:
+                tasks = [self.infer_batch(frame) for frame in image]
+                return list(await asyncio.gather(*tasks))
+
+            if image.ndim == 3:
+                return await self.infer_batch(image)
+
+            raise ValueError(
+                f"Unsupported input shape: {image.shape}. Expected [C,H,W] or [N,C,H,W]."
+            )
+
         return await self.infer_batch(image)
 
 
