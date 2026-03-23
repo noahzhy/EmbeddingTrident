@@ -14,8 +14,10 @@ from src.nodes.image_node import *
 from src.nodes.crop_node import CropNode
 from src.nodes.unit_node import UnitNode
 from src.nodes.sku_node import SkuNode
+from src.nodes.visual_node import VisualNode
 from src.pipelines.model_infer_pipeline import ModelInferPipeline
 from src.pipelines.image_pipeline import ImagePipeline
+from src.pipelines.visual_pipeline import VisualPipeline
 
 
 def _env_float(name: str, default: float) -> float:
@@ -122,6 +124,12 @@ def build_unit_sku_pipeline():
     return unit_sku_pipeline
 
 
+def build_visual_pipeline():
+    visual_node = VisualNode.bind(top_k=5)
+    visual_pipeline = VisualPipeline.bind(visual_node)
+    return visual_pipeline
+
+
 class UnitSkuApplication:
     """
     Unit and SKU standard inference application using Ray Serve.
@@ -173,13 +181,27 @@ class UnitSkuApplication:
             },
         )
         self.unit_sku_pipeline = build_unit_sku_pipeline()
+        self.visual_pipeline = build_visual_pipeline()
 
     def start(self):
-        print("Unit-SKU inference application is running on http://0.0.0.0:2866")
-        serve.run(self.unit_sku_pipeline, route_prefix="/infer_unit_sku")
+        print("Unit-SKU and visualization services are running on http://0.0.0.0:2866")
+        serve.run_many(
+            [
+                serve.RunTarget(
+                    target=self.unit_sku_pipeline,
+                    name="unit_sku_app",
+                    route_prefix="/infer_unit_sku",
+                ),
+                serve.RunTarget(
+                    target=self.visual_pipeline,
+                    name="visual_app",
+                    route_prefix="/visualize",
+                ),
+            ]
+        )
         wait_for_routes(
             base_url="http://127.0.0.1:2866",
-            expected_routes=["/infer_unit_sku"],
+            expected_routes=["/infer_unit_sku", "/visualize"],
             timeout_s=45,
         )
         try:
