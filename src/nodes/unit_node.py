@@ -24,7 +24,7 @@ UNIT_MODEL_NAME = "CCTH-Unit"
 UNIT_MODEL_TYPE = "yolov5"
 
 UnitParamsSignature = Tuple[str, float, float, float, float, float, float, float]
-UnitPayload = Tuple[np.ndarray, Dict[str, Any], UnitParamsSignature]
+UnitPayload = Tuple[np.ndarray, Dict[str, Any], UnitParamsSignature, Dict[str, Any]]
 
 
 @serve.deployment(
@@ -79,6 +79,7 @@ class UnitNode:
         self,
         item: Any,
     ) -> UnitPayload:
+        passthrough: Dict[str, Any] = {}
         if isinstance(item, dict):
             if "image" not in item:
                 raise ValueError("UnitNode expects key 'image' when input payload is a dict")
@@ -86,6 +87,9 @@ class UnitNode:
             input_shape = self._to_float_list(item.get("input_shape"), 2)
             orig_shape = self._to_float_list(item.get("orig_shape"), 2)
             pad_info = self._to_float_list(item.get("pad_info"), 3)
+
+            if item.get("raw_image") is not None:
+                passthrough["raw_image"] = np.asarray(item.get("raw_image"))
         else:
             image = np.asarray(item)
             input_shape = None
@@ -127,7 +131,7 @@ class UnitNode:
             pad_info=pad_info,
         )
 
-        return image, params, params_signature
+        return image, params, params_signature, passthrough
 
     @staticmethod
     def post_process(raw_results: np.ndarray) -> List[List[Dict[str, Any]]]:
@@ -164,10 +168,10 @@ class UnitNode:
                 detections.append(
                     {
                         "bbox": [
-                            float(row[0]),
-                            float(row[1]),
-                            float(row[2]),
-                            float(row[3]),
+                            round(float(row[0]), 6),
+                            round(float(row[1]), 6),
+                            round(float(row[2]), 6),
+                            round(float(row[3]), 6),
                         ],
                         "score": round(score, 4),
                         "class_id": int(row[5]),
@@ -182,7 +186,7 @@ class UnitNode:
         self,
         payload: UnitPayload,
     ) -> Dict:
-        image, params, _ = payload
+        image, params, _, passthrough = payload
 
         single_raw = await self.triton_client.infer_async(
             np.expand_dims(image, axis=0),
@@ -190,9 +194,11 @@ class UnitNode:
         )
         single_detections = self.post_process(single_raw)
         detections = single_detections[0] if single_detections else []
-        return {
+        output: Dict[str, Any] = {
             "detections": detections,
         }
+        output.update(passthrough)
+        return output
 
     async def _infer_payloads_concurrent(
         self,
@@ -247,7 +253,13 @@ class UnitNode:
 
         self._batch_supported = True
 
-        return [{"detections": detections} for detections in detections_batch]
+        outputs: List[Dict[str, Any]] = []
+        for idx, detections in enumerate(detections_batch):
+            output: Dict[str, Any] = {"detections": detections}
+            output.update(payloads[idx][3])
+            outputs.append(output)
+
+        return outputs
 
     async def __call__(self, image: Any) -> Union[Dict, List[Dict]]:
         if isinstance(image, np.ndarray):

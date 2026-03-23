@@ -17,7 +17,6 @@ except Exception:
     from ray.serve import batch
 
 from ray.serve.exceptions import RayServeException
-from turbojpeg import TurboJPEG
 from tenacity import Retrying, stop_after_attempt, wait_fixed, retry_if_exception
 
 
@@ -29,11 +28,13 @@ class ImagePipeline:
         self,
         loader: DeploymentHandle,
         letterbox: DeploymentHandle,
-        normalizer: DeploymentHandle
+        normalizer: DeploymentHandle,
+        include_raw_image: bool = False,
     ):
         self.loader = loader
         self.letterbox = letterbox
         self.normalizer = normalizer
+        self.include_raw_image = include_raw_image
 
     async def __call__(self, url: str) -> Dict[str, Any]:
         # 1. Load image
@@ -45,10 +46,15 @@ class ImagePipeline:
         # 3. Normalize
         final_tensor = await self.normalizer.remote(img_padded)
 
-        return {
+        result = {
             "image": final_tensor,
             **meta
         }
+
+        if self.include_raw_image:
+            result["raw_image"] = img
+
+        return result
 
 
 if __name__ == "__main__":

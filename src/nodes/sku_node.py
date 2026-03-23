@@ -3,7 +3,7 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import asyncio
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import ray
 import numpy as np
@@ -32,6 +32,7 @@ class SkuNode:
         triton_host: str = TRITON_HOST,
         triton_port: int = TRITON_PORT,
         model_name: str = SKU_MODEL_NAME,
+        cropper_node: Any = None,
         *args,
         **kwargs,
     ):
@@ -40,6 +41,7 @@ class SkuNode:
             model_name=model_name,
         )
         self._batch_supported: Optional[bool] = None
+        self.cropper = cropper_node
 
     @staticmethod
     def post_process(raw_results: np.ndarray) -> List[Tuple[str, float]]:
@@ -108,12 +110,56 @@ class SkuNode:
         self._batch_supported = True
         return [{"label": l[0], "score": l[1]} for l in labels]
 
-    async def __call__(self, image: np.ndarray) -> Union[Dict, List[Dict]]:
+    async def __call__(self, image: Any) -> Union[Dict, List[Dict]]:
         """
         Accepts either:
         - a single 3D image [C, H, W]  → returns a single Dict
         - a batch of 4D images [N, C, H, W] → returns a List[Dict]
         """
+        if isinstance(image, dict):
+            processed = image
+            if "image" not in processed:
+                if self.cropper is None:
+                    raise ValueError("SkuNode payload missing image and no cropper_node configured")
+                processed = await self.cropper.remote(image)
+
+            crops = processed.get("image")
+            detections = processed.get("detections", image.get("detections", []))
+            if not isinstance(crops, np.ndarray) or crops.size == 0:
+                return {
+                    "detections": detections if isinstance(detections, list) else [],
+                    "sku_results": [],
+                    "unit_sku": [],
+                }
+
+            sku_raw = await self.__call__(crops)
+            if isinstance(sku_raw, dict):
+                sku_results: List[Dict[str, Any]] = [sku_raw]
+            elif isinstance(sku_raw, list):
+                sku_results = []
+                for item in sku_raw:
+                    if isinstance(item, dict):
+                        sku_results.append(item)
+                    elif isinstance(item, list):
+                        sku_results.extend(x for x in item if isinstance(x, dict))
+            else:
+                sku_results = []
+
+            merged: List[Dict[str, Any]] = []
+            if isinstance(detections, list):
+                for idx, det in enumerate(detections):
+                    combined = dict(det) if isinstance(det, dict) else {}
+                    if idx < len(sku_results):
+                        combined["sku_label"] = sku_results[idx].get("label", "")
+                        combined["sku_score"] = float(sku_results[idx].get("score", 0.0))
+                    merged.append(combined)
+
+            return {
+                "detections": detections if isinstance(detections, list) else [],
+                "sku_results": sku_results,
+                "unit_sku": merged,
+            }
+
         if not isinstance(image, np.ndarray):
             raise TypeError("SkuNode expects numpy.ndarray input.")
 

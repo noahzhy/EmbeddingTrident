@@ -16,9 +16,15 @@ from ray.serve.handle import DeploymentHandle
 )
 class ModelInferPipeline:
 
-    def __init__(self, preprocess: DeploymentHandle, infer: DeploymentHandle):
+    def __init__(
+        self,
+        preprocess: DeploymentHandle,
+        infer: DeploymentHandle,
+        pass_preprocess_result: bool = False,
+    ):
         self.preprocess = preprocess
         self.infer = infer
+        self.pass_preprocess_result = pass_preprocess_result
 
     @staticmethod
     def _extract_preprocess_image(preprocess_result: Any) -> Any:
@@ -31,7 +37,10 @@ class ModelInferPipeline:
 
     async def _infer_one_url(self, image_url: str) -> Any:
         preprocess_result = await self.preprocess.remote(image_url)
-        processed_image = self._extract_preprocess_image(preprocess_result)
+        if self.pass_preprocess_result:
+            processed_image = preprocess_result
+        else:
+            processed_image = self._extract_preprocess_image(preprocess_result)
         return await self.infer.remote(processed_image)
 
     async def _run_urls_with_pipelining(self, image_urls: List[str]) -> List[Any]:
@@ -51,7 +60,13 @@ class ModelInferPipeline:
                 
         return clean_results
 
-    async def __call__(self, request: Request) -> Dict:
+    async def __call__(self, request: Any) -> Dict:
+        if isinstance(request, str):
+            return await self._infer_one_url(request)
+
+        if isinstance(request, list):
+            return await self._run_urls_with_pipelining(request)
+
         try:
             data = await request.json()
         except Exception as e:

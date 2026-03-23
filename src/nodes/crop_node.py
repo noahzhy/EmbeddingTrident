@@ -1,6 +1,7 @@
 # import torch
 # import torch.nn.functional as F
 import numpy as np
+from typing import Any, Dict, List, Tuple
 
 import ray
 from ray import serve
@@ -17,6 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 from src.nodes.image_node import fast_letterbox
 
 
+@serve.deployment(ray_actor_options={"num_cpus": 1})
 class CropNode:
     """
     专为 Ray DAG 优化的纯单线程 Numpy/OpenCV CropNode
@@ -32,12 +34,49 @@ class CropNode:
         self.target_size = target_size
         self.pad_value = pad_value
 
-    def __call__(self, image: np.ndarray, boxes: np.ndarray):
+    @staticmethod
+    def _parse_detections_to_boxes(
+        detections: Any,
+    ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        if not isinstance(detections, list) or not detections:
+            return np.empty((0, 6), dtype=np.float32), []
+
+        boxes_rows: List[List[float]] = []
+        kept_detections: List[Dict[str, Any]] = []
+        for det in detections:
+            if not isinstance(det, dict):
+                continue
+            bbox = det.get("bbox", [])
+            if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                continue
+
+            boxes_rows.append(
+                [
+                    float(bbox[0]),
+                    float(bbox[1]),
+                    float(bbox[2]),
+                    float(bbox[3]),
+                    float(det.get("score", 0.0)),
+                    float(det.get("class_id", -1)),
+                ]
+            )
+            kept_detections.append(det)
+
+        if not boxes_rows:
+            return np.empty((0, 6), dtype=np.float32), []
+
+        return np.asarray(boxes_rows, dtype=np.float32), kept_detections
+
+    def _crop_core(
+        self,
+        image: np.ndarray,
+        boxes: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         H, W, C = image.shape
         N = boxes.shape[0]
 
         if N == 0:
-            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), boxes
+            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), np.empty((0,), dtype=np.int64)
 
         # 1. 向量化反归一化 (直接使用 numpy 底层 C 循环，极快)
         boxes_xyxy = boxes[:, :4].copy()
@@ -59,47 +98,76 @@ class CropNode:
         valid_N = len(valid_indices)
 
         if valid_N == 0:
-            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), np.empty((0, 6), dtype=np.float32)
+            return np.empty((0, C, self.target_size[0], self.target_size[1]), dtype=np.float32), valid_indices
 
         # 3. 【核心提速点】预先分配好整块连续的内存
         crops_array = np.empty((valid_N, C, self.target_size[0], self.target_size[1]), dtype=np.float32)
-        cv2_target = (self.target_size[1], self.target_size[0])
 
         # 4. 纯单线程紧凑循环
         for out_idx, idx in enumerate(valid_indices):
             x1, y1, x2, y2 = boxes_int[idx]
             crop = image[y1:y2, x1:x2]
-            resized = fast_letterbox(crop, size=self.target_size, pad_value=self.pad_value)
+            resized, _ = fast_letterbox(crop, size=self.target_size, pad_value=self.pad_value)
             # 转 CHW, 归一化，并直接按索引写入预分配的内存块中
             crops_array[out_idx] = resized.transpose(2, 0, 1).astype(np.float32) / 255.0
 
-        return crops_array, boxes[valid_indices]
+        return crops_array, valid_indices
+
+    def __call__(self, *args, **kwargs) -> Any:
+        # Compatible mode 1: CropNode(image, boxes) -> np.ndarray
+        if len(args) == 2:
+            image, boxes = args
+            image_np = np.asarray(image)
+            boxes_np = np.asarray(boxes, dtype=np.float32)
+            crops, _ = self._crop_core(image_np, boxes_np)
+            return crops
+
+        # Compatible mode 2: CropNode({"raw_image": ..., "detections": [...]})
+        # Returns dict with "image" to match ModelInferPipeline's extractor.
+        if len(args) == 1 and isinstance(args[0], dict):
+            payload = args[0]
+            raw_image = payload.get("raw_image")
+            if raw_image is None:
+                raw_image = payload.get("image")
+
+            image_np = np.asarray(raw_image)
+            detections = payload.get("detections", [])
+            boxes_np, kept_detections = self._parse_detections_to_boxes(detections)
+            crops, valid_indices = self._crop_core(image_np, boxes_np)
+
+            valid_detections = [kept_detections[i] for i in valid_indices.tolist()] if len(kept_detections) else []
+            return {
+                "image": crops,
+                "detections": valid_detections,
+            }
+
+        raise TypeError("CropNode expects either (image, boxes) or a payload dict containing raw_image and detections")
 
 
-@serve.deployment()
-class CropDeployment:
-    """
-    Ray Serve Crop Deployment (去除了 PyTorch 依赖)
-    """
-    def __init__(self, target_size=(224, 224)):
-        self.node = CropNode(target_size=target_size)
+# @serve.deployment()
+# class CropDeployment:
+#     """
+#     Ray Serve Crop Deployment (去除了 PyTorch 依赖)
+#     """
+#     def __init__(self, target_size=(224, 224)):
+#         self.node = CropNode(target_size=target_size)
 
-    async def __call__(self, request: dict):
-        """
-        request:
-            image: np.ndarray HWC uint8
-            boxes: np.ndarray (N,6) xyxy+score+class
-        """
-        img_np = request["image"]
-        boxes = request.get("boxes", np.empty((0, 6), dtype=np.float32))
+#     async def __call__(self, request: dict):
+#         """
+#         request:
+#             image: np.ndarray HWC uint8
+#             boxes: np.ndarray (N,6) xyxy+score+class
+#         """
+#         img_np = request["image"]
+#         boxes = request.get("boxes", np.empty((0, 6), dtype=np.float32))
 
-        # 直接传入 NumPy 数组处理
-        crops, valid_boxes = self.node(img_np, boxes)
+#         # 直接传入 NumPy 数组处理
+#         crops, valid_boxes = self.node(img_np, boxes)
 
-        return {
-            "crops": crops,
-            "boxes": valid_boxes
-        }
+#         return {
+#             "crops": crops,
+#             "boxes": valid_boxes
+#         }
 
 
 if __name__ == "__main__":
@@ -138,9 +206,8 @@ if __name__ == "__main__":
 
     boxes = np.asarray(boxes_list, dtype=np.float32)
 
-    crops, valid_boxes = node(image, boxes)
+    crops = node(image, boxes)
 
-    np.save(str(debug_dir / "valid_boxes.npy"), valid_boxes)
     for i, crop_chw in enumerate(crops):
         crop_hwc = np.transpose(crop_chw, (1, 2, 0))
         crop_u8 = np.clip(crop_hwc * 255.0, 0, 255).astype(np.uint8)
@@ -150,5 +217,4 @@ if __name__ == "__main__":
     print(f"Input image: {image_path}")
     print(f"Input detections: {len(detections)}")
     print("Crops shape:", crops.shape)
-    print("Valid boxes shape:", valid_boxes.shape)
     print(f"Saved debug crops to: {debug_dir}")

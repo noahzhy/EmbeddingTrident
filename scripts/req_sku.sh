@@ -8,7 +8,7 @@ echo "==================================="
 curl -X POST "${ENDPOINT}" \
      -H "Content-Type: application/json" \
      -d '{
-           "image_url": "data/debug_crops/crop_0001.jpg"
+           "image_url": "data/images/4653849.png"
          }'
 
 echo -e "\n\n==================================="
@@ -19,8 +19,8 @@ curl -X POST "${ENDPOINT}" \
      -d '{
            "image_urls": [
              "data/images/4653849.png",
-             "data/debug_crops/crop_0001.jpg"
+             "data/images/4653849.png"
            ]
          }'
-         
+
 echo -e "\n\n请求完成！"

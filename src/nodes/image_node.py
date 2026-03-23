@@ -17,7 +17,10 @@ except Exception:
     from ray.serve import batch
 
 from ray.serve.exceptions import RayServeException
-from turbojpeg import TurboJPEG
+try:
+    from turbojpeg import TurboJPEG
+except Exception:
+    TurboJPEG = None
 from tenacity import Retrying, stop_after_attempt, wait_fixed, retry_if_exception
 
 # --- 配置常量 ---
@@ -37,6 +40,8 @@ _default_session = None
 
 def _get_jpeg() -> TurboJPEG:
     global _jpeg
+    if TurboJPEG is None:
+        return None
     if _jpeg is None:
         _jpeg = TurboJPEG()
     return _jpeg
@@ -107,7 +112,9 @@ def _decode_image(src: str, data: Union[bytes, np.ndarray]) -> np.ndarray:
     ext = os.path.splitext(src)[1].lower()
     if ext in [".jpg", ".jpeg"]:
         try:
-            return _get_jpeg().decode(data)
+            jpeg = _get_jpeg()
+            if jpeg is not None:
+                return jpeg.decode(data)
         except Exception:
             pass
 
