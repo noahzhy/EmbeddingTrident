@@ -159,13 +159,13 @@ class UnitNode:
 
         batch_results: List[List[Dict[str, Any]]] = []
         for image_boxes in arr:
-            detections: List[Dict[str, Any]] = []
+            unit_results: List[Dict[str, Any]] = []
             for row in image_boxes:
                 score = float(row[4])
                 if score <= 0:
                     continue
 
-                detections.append(
+                unit_results.append(
                     {
                         "bbox": [
                             round(float(row[0]), 6),
@@ -178,7 +178,7 @@ class UnitNode:
                     }
                 )
 
-            batch_results.append(detections)
+            batch_results.append(unit_results)
 
         return batch_results
 
@@ -193,9 +193,9 @@ class UnitNode:
             params=params,
         )
         single_detections = self.post_process(single_raw)
-        detections = single_detections[0] if single_detections else []
+        unit_results = single_detections[0] if single_detections else []
         output: Dict[str, Any] = {
-            "detections": detections,
+            "unit_results": unit_results,
         }
         output.update(passthrough)
         return output
@@ -246,7 +246,7 @@ class UnitNode:
         )
         detections_batch = self.post_process(raw_results) or []
 
-        # Some models ignore batching and return detections for a single image only.
+        # Some models ignore batching and return unit_results for a single image only.
         if len(detections_batch) != len(inputs):
             self._batch_supported = False
             return await self._infer_payloads_concurrent(payloads)
@@ -254,8 +254,8 @@ class UnitNode:
         self._batch_supported = True
 
         outputs: List[Dict[str, Any]] = []
-        for idx, detections in enumerate(detections_batch):
-            output: Dict[str, Any] = {"detections": detections}
+        for idx, unit_results in enumerate(detections_batch):
+            output: Dict[str, Any] = {"unit_results": unit_results}
             output.update(payloads[idx][3])
             outputs.append(output)
 

@@ -17,11 +17,11 @@ def main():
 
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    detections = data.get("detections", [])
+    unit_results = data.get("unit_results", [])
 
-    print(f"Loaded {len(detections)} detections from {json_path}")
+    print(f"Loaded {len(unit_results)} unit_results from {json_path}")
 
-    for det in detections:
+    for det in unit_results:
         bbox = det["bbox"]
         score = det["score"]
         class_id = det["class_id"]

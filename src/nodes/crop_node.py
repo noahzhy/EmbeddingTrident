@@ -36,14 +36,14 @@ class CropNode:
 
     @staticmethod
     def _parse_detections_to_boxes(
-        detections: Any,
+        unit_results: Any,
     ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        if not isinstance(detections, list) or not detections:
+        if not isinstance(unit_results, list) or not unit_results:
             return np.empty((0, 6), dtype=np.float32), []
 
         boxes_rows: List[List[float]] = []
         kept_detections: List[Dict[str, Any]] = []
-        for det in detections:
+        for det in unit_results:
             if not isinstance(det, dict):
                 continue
             bbox = det.get("bbox", [])
@@ -122,7 +122,7 @@ class CropNode:
             crops, _ = self._crop_core(image_np, boxes_np)
             return crops
 
-        # Compatible mode 2: CropNode({"raw_image": ..., "detections": [...]})
+        # Compatible mode 2: CropNode({"raw_image": ..., "unit_results": [...]})
         # Returns dict with "image" to match ModelInferPipeline's extractor.
         if len(args) == 1 and isinstance(args[0], dict):
             payload = args[0]
@@ -131,17 +131,17 @@ class CropNode:
                 raw_image = payload.get("image")
 
             image_np = np.asarray(raw_image)
-            detections = payload.get("detections", [])
-            boxes_np, kept_detections = self._parse_detections_to_boxes(detections)
+            unit_results = payload.get("unit_results", [])
+            boxes_np, kept_detections = self._parse_detections_to_boxes(unit_results)
             crops, valid_indices = self._crop_core(image_np, boxes_np)
 
             valid_detections = [kept_detections[i] for i in valid_indices.tolist()] if len(kept_detections) else []
             return {
                 "image": crops,
-                "detections": valid_detections,
+                "unit_results": valid_detections,
             }
 
-        raise TypeError("CropNode expects either (image, boxes) or a payload dict containing raw_image and detections")
+        raise TypeError("CropNode expects either (image, boxes) or a payload dict containing raw_image and unit_results")
 
 
 # @serve.deployment()
@@ -187,9 +187,9 @@ if __name__ == "__main__":
     with detection_json_path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    detections = payload.get("detections", [])
+    unit_results = payload.get("unit_results", [])
     boxes_list = []
-    for det in detections:
+    for det in unit_results:
         bbox = det.get("bbox", [])
         if len(bbox) != 4:
             continue
@@ -215,6 +215,6 @@ if __name__ == "__main__":
         cv2.imwrite(str(debug_dir / f"crop_{i:04d}.jpg"), crop_bgr)
 
     print(f"Input image: {image_path}")
-    print(f"Input detections: {len(detections)}")
+    print(f"Input unit_results: {len(unit_results)}")
     print("Crops shape:", crops.shape)
     print(f"Saved debug crops to: {debug_dir}")

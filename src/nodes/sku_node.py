@@ -124,12 +124,12 @@ class SkuNode:
                 processed = await self.cropper.remote(image)
 
             crops = processed.get("image")
-            detections = processed.get("detections", image.get("detections", []))
+            unit_results = processed.get("unit_results", image.get("unit_results", []))
             if not isinstance(crops, np.ndarray) or crops.size == 0:
                 return {
-                    "detections": detections if isinstance(detections, list) else [],
+                    "unit_results": unit_results if isinstance(unit_results, list) else [],
                     "sku_results": [],
-                    "unit_sku": [],
+                    "unit_sku_results": [],
                 }
 
             sku_raw = await self.__call__(crops)
@@ -146,8 +146,8 @@ class SkuNode:
                 sku_results = []
 
             merged: List[Dict[str, Any]] = []
-            if isinstance(detections, list):
-                for idx, det in enumerate(detections):
+            if isinstance(unit_results, list):
+                for idx, det in enumerate(unit_results):
                     combined = dict(det) if isinstance(det, dict) else {}
                     if idx < len(sku_results):
                         combined["sku_label"] = sku_results[idx].get("label", "")
@@ -155,9 +155,9 @@ class SkuNode:
                     merged.append(combined)
 
             return {
-                "detections": detections if isinstance(detections, list) else [],
+                "unit_results": unit_results if isinstance(unit_results, list) else [],
                 "sku_results": sku_results,
-                "unit_sku": merged,
+                "unit_sku_results": merged,
             }
 
         if not isinstance(image, np.ndarray):

@@ -36,7 +36,7 @@ def wait_for_routes(base_url: str, expected_routes: List[str], timeout_s: int = 
         try:
             with urlopen(routes_url, timeout=2) as resp:
                 route_payload = json.loads(resp.read().decode("utf-8"))
-
+            
             available_routes = set(route_payload.keys()) if isinstance(
                 route_payload, dict) else set()
             if all(route in available_routes for route in expected_routes):
@@ -44,7 +44,7 @@ def wait_for_routes(base_url: str, expected_routes: List[str], timeout_s: int = 
                 return
         except (URLError, TimeoutError, json.JSONDecodeError, OSError):
             pass
-
+        
         time.sleep(interval_s)
 
     raise RuntimeError(
