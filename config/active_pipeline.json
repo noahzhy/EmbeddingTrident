@@ -1,18 +1,18 @@
 {
-    "models": [
-        {
-            "model_type": "Object_Detection",
-            "model_name": "CCTH-Unit",
-            "timestamp": "20260317083337"
-        },
-        {
-            "model_type": "Classification",
-            "model_name": "Suntory-ES-Sku",
-            "timestamp": "20260318151232"
-        }
-    ],
-    "pipeline_type": "unit_sku",
-    "unit_model_name": "CCTH-Unit",
-    "sku_model_name": "Suntory-ES-Sku",
-    "deployed_at": "2026-03-25T14:05:30.198981+00:00"
+  "models": [
+    {
+      "model_type": "Object_Detection",
+      "model_name": "CCTH-Unit",
+      "timestamp": "20260317083337"
+    },
+    {
+      "model_type": "Classification",
+      "model_name": "Suntory-ES-Sku",
+      "timestamp": "20260318151232"
+    }
+  ],
+  "pipeline_type": "unit_sku",
+  "unit_model_name": "CCTH-Unit",
+  "sku_model_name": "Suntory-ES-Sku",
+  "deployed_at": "2026-03-25T15:11:14.434380+00:00"
 }
