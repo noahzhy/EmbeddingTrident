@@ -3,7 +3,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import json
-from typing import List
+from typing import Dict, List, Optional
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -42,91 +42,109 @@ sku_cpus            = _env_float("SKU_NODE_CPUS",       1.0)
 image_pipeline_cpus = _env_float("IMAGE_PIPELINE_CPUS", 0.5)
 infer_pipeline_cpus = _env_float("INFER_PIPELINE_CPUS", 0.5)
 
-# basic nodes
-image_loader = ImageLoaderNode.options(
-    ray_actor_options={"num_cpus": image_loader_cpus}
-).bind(io_workers=io_workers)
-letterbox_960 = LetterboxNode.options(
-    ray_actor_options={"num_cpus": letterbox_cpus}
-).bind(target_size=(960, 960))
-cropper = CropNode.options(
-    ray_actor_options={"num_cpus": cropper_cpus}
-).bind(target_size=(224, 224))
-normalization = NormalizationNode.options(
-    ray_actor_options={"num_cpus": normalization_cpus}
-).bind()
 
-unit_infer = UnitNode.options(
-    ray_actor_options={"num_cpus": unit_cpus}
-).bind(
-    triton_host="localhost",
-    triton_port=8001,
-    model_name="CCTH-Unit",
-)
-sku_infer = SkuNode.options(
-    ray_actor_options={"num_cpus": sku_cpus}
-).bind(
-    triton_host="localhost",
-    triton_port=8001,
-    model_name="Suntory-ES-Sku",
-    cropper_node=cropper,
-)
+def build_pipelines(
+    pipeline_type: str = "unit_sku",
+    unit_model_name: Optional[str] = "CCTH-Unit",
+    sku_model_name: Optional[str] = "Suntory-ES-Sku",
+    triton_host: str = "localhost",
+    triton_port: int = 8001,
+) -> Dict[str, object]:
+    """Build Ray Serve pipelines based on requested type and model names.
 
+    pipeline_type: "unit", "sku", or "unit_sku"
+    """
+    # -- shared preprocessing nodes (stateless, safe to reuse) --
+    image_loader = ImageLoaderNode.options(
+        ray_actor_options={"num_cpus": image_loader_cpus}
+    ).bind(io_workers=io_workers)
+    letterbox_960 = LetterboxNode.options(
+        ray_actor_options={"num_cpus": letterbox_cpus}
+    ).bind(target_size=(960, 960))
+    normalization = NormalizationNode.options(
+        ray_actor_options={"num_cpus": normalization_cpus}
+    ).bind()
 
-def build_pipelines():
+    pipelines: Dict[str, object] = {}
+    need_unit = pipeline_type in ("unit", "unit_sku")
+    need_sku = pipeline_type in ("sku", "unit_sku")
 
-    # Unit-only path does not need the original image buffer.
-    unit_preprocess = ImagePipeline.options(
-        ray_actor_options={"num_cpus": image_pipeline_cpus}
-    ).bind(
-        image_loader,
-        letterbox_960,
-        normalization,
-        include_raw_image=False,
-    )
+    unit_infer = None
+    if need_unit and unit_model_name:
+        unit_infer = UnitNode.options(
+            ray_actor_options={"num_cpus": unit_cpus}
+        ).bind(
+            triton_host=triton_host,
+            triton_port=triton_port,
+            model_name=unit_model_name,
+        )
 
-    # Unit+SKU path still needs raw_image for post-detection cropping.
-    unit_sku_preprocess = ImagePipeline.options(
-        ray_actor_options={"num_cpus": image_pipeline_cpus}
-    ).bind(
-        image_loader,
-        letterbox_960,
-        normalization,
-        include_raw_image=True,
-    )
+    sku_infer = None
+    if need_sku and sku_model_name:
+        cropper = CropNode.options(
+            ray_actor_options={"num_cpus": cropper_cpus}
+        ).bind(target_size=(224, 224))
+        sku_infer = SkuNode.options(
+            ray_actor_options={"num_cpus": sku_cpus}
+        ).bind(
+            triton_host=triton_host,
+            triton_port=triton_port,
+            model_name=sku_model_name,
+            cropper_node=cropper,
+        )
 
-    unit_pipeline = ModelInferPipeline.options(
-        name="unit",
-        ray_actor_options={"num_cpus": infer_pipeline_cpus},
-    ).bind(
-        preprocess=unit_preprocess,
-        infer=unit_infer,
-        pass_preprocess_result=True,
-    )
-
-    unit_sku_pipeline = ModelInferPipeline.options(
-        name="unit_sku",
-        ray_actor_options={"num_cpus": infer_pipeline_cpus},
-    ).bind(
-        preprocess=ModelInferPipeline.options(
+    # -- unit-only pipeline --
+    if need_unit and unit_infer is not None:
+        unit_preprocess = ImagePipeline.options(
+            ray_actor_options={"num_cpus": image_pipeline_cpus}
+        ).bind(
+            image_loader,
+            letterbox_960,
+            normalization,
+            include_raw_image=False,
+        )
+        unit_pipeline = ModelInferPipeline.options(
+            name="unit",
             ray_actor_options={"num_cpus": infer_pipeline_cpus},
         ).bind(
-            preprocess=unit_sku_preprocess,
+            preprocess=unit_preprocess,
             infer=unit_infer,
             pass_preprocess_result=True,
-        ),
-        infer=sku_infer,
-        pass_preprocess_result=True,
-    )
+        )
+        pipelines["unit"] = unit_pipeline
 
+    # -- unit_sku combined pipeline --
+    if pipeline_type == "unit_sku" and unit_infer is not None and sku_infer is not None:
+        unit_sku_preprocess = ImagePipeline.options(
+            ray_actor_options={"num_cpus": image_pipeline_cpus}
+        ).bind(
+            image_loader,
+            letterbox_960,
+            normalization,
+            include_raw_image=True,
+        )
+        unit_sku_pipeline = ModelInferPipeline.options(
+            name="unit_sku",
+            ray_actor_options={"num_cpus": infer_pipeline_cpus},
+        ).bind(
+            preprocess=ModelInferPipeline.options(
+                ray_actor_options={"num_cpus": infer_pipeline_cpus},
+            ).bind(
+                preprocess=unit_sku_preprocess,
+                infer=unit_infer,
+                pass_preprocess_result=True,
+            ),
+            infer=sku_infer,
+            pass_preprocess_result=True,
+        )
+        pipelines["unit_sku"] = unit_sku_pipeline
+
+    # -- visual pipeline (always available) --
     visual_node = VisualNode.bind(top_k=1)
     visual_pipeline = VisualPipeline.bind(visual_node)
-    # return visual_pipeline
-    return {
-        "unit": unit_pipeline,
-        "unit_sku": unit_sku_pipeline,
-        "visual": visual_pipeline,
-    }
+    pipelines["visual"] = visual_pipeline
+
+    return pipelines
     
 
 
@@ -134,6 +152,10 @@ def build_pipelines():
 class UnitSkuApplication:
     """
     Unit and SKU standard inference application using Ray Serve.
+
+    Supports two modes:
+    - Legacy: hardcoded models (when PIPELINE_AUTO_CONFIG != "1")
+    - Auto-config: starts with /config endpoint, restores from persisted config
     """
 
     def __init__(self):
@@ -181,29 +203,68 @@ class UnitSkuApplication:
                 "port": 2866,
             },
         )
+
+        self.auto_config = os.getenv("PIPELINE_AUTO_CONFIG", "1") == "1"
         self.sub_services = []
-        self.pipelines = build_pipelines()
-        for name, pipeline in self.pipelines.items():
-            # self.setattr(name, pipeline)
-            self.sub_services.append(
-                serve.RunTarget(
-                    target=pipeline,
-                    name=name,
-                    route_prefix=f"/{name}",
+        self.pipelines = {}
+
+        if self.auto_config:
+            # Auto-config mode: deploy config endpoint, then try to restore
+            self._deploy_config_endpoint()
+            self._try_restore()
+        else:
+            # Legacy mode: build hardcoded pipelines immediately
+            self.pipelines = build_pipelines()
+            for name, pipeline in self.pipelines.items():
+                self.sub_services.append(
+                    serve.RunTarget(
+                        target=pipeline,
+                        name=name,
+                        route_prefix=f"/{name}",
+                    )
                 )
+                print(f"[startup] target '{pipeline}' registered at route '/{name}'")
+
+    def _deploy_config_endpoint(self):
+        """Deploy the /config control endpoint."""
+        from src.control_plane.config_endpoint import ConfigEndpoint
+        config_app = ConfigEndpoint.bind()
+        self.sub_services.append(
+            serve.RunTarget(
+                target=config_app,
+                name="config",
+                route_prefix="/config",
             )
-            print(f"[startup] target '{pipeline}' registered at route '/{name}'")
+        )
+        print("[startup] config endpoint registered at /config")
+
+    def _try_restore(self):
+        """Attempt to restore pipeline from persisted config."""
+        from src.control_plane.pipeline_manager import PipelineManager
+        try:
+            mgr = PipelineManager()
+            result = mgr.restore_from_config()
+            if result:
+                print(f"[startup] restored pipeline: {result.get('pipeline_type')}")
+        except Exception as exc:
+            print(f"[startup] failed to restore pipeline: {exc}")
+            print("[startup] service will start with only /config endpoint available")
 
     def start(self):
-        print("Unit-SKU and visualization services are running on http://0.0.0.0:2866")
-        serve.run_many(
-            self.sub_services
-        )
-        wait_for_routes(
-            base_url="http://127.0.0.1:2866",
-            expected_routes=[f"/{name}" for name in self.pipelines.keys()],
-            timeout_s=45,
-        )
+        print("Services are running on http://0.0.0.0:2866")
+        if self.sub_services:
+            serve.run_many(self.sub_services)
+
+        expected_routes = [f"/{name}" for name in self.pipelines.keys()] if self.pipelines else []
+        if self.auto_config:
+            expected_routes.append("/config")
+
+        if expected_routes:
+            wait_for_routes(
+                base_url="http://127.0.0.1:2866",
+                expected_routes=expected_routes,
+                timeout_s=45,
+            )
         try:
             while True:
                 time.sleep(1)

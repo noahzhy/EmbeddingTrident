@@ -11,16 +11,27 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # no color
 
+# ================= Parse flags =================
+EXPLICIT_MODE=false
+for arg in "$@"; do
+    case "$arg" in
+        --explicit) EXPLICIT_MODE=true; shift ;;
+    esac
+done
+
 # ================= Determine Model Repository =================
 if [ -n "$1" ]; then
     ORIGINAL_MODEL_REPO="$1"
     echo -e "${BLUE}[INFO]${NC} Using provided model repository: $ORIGINAL_MODEL_REPO"
-    if [ "$#" -gt 1 ]; then
-        echo -e "${YELLOW}[WARN]${NC} Script takes only one argument (model repository path). Extra arguments ignored."
-    fi
 else
-    ORIGINAL_MODEL_REPO="$(pwd)/models"
+    ORIGINAL_MODEL_REPO="$(pwd)/trt_models"
     echo -e "${BLUE}[INFO]${NC} Using default model repository: $ORIGINAL_MODEL_REPO"
+fi
+
+# In explicit mode, create empty repo if it doesn't exist
+if $EXPLICIT_MODE; then
+    mkdir -p "$ORIGINAL_MODEL_REPO"
+    echo -e "${BLUE}[INFO]${NC} Explicit model-control mode enabled. Models will be loaded via HTTP API."
 fi
 
 # Validate that the model repository directory exists
@@ -31,63 +42,75 @@ fi
 
 ACTIVE_REPO="$(pwd)/.active_models"
 
-# ================= Select Models =================
-echo -e "${BLUE}[INFO]${NC} Checking available models in '$ORIGINAL_MODEL_REPO'...${NC}"
+if $EXPLICIT_MODE; then
+    # ================= Explicit mode: use repo directly, skip interactive selection =================
+    rm -rf "$ACTIVE_REPO"
+    cp -r "$ORIGINAL_MODEL_REPO" "$ACTIVE_REPO" 2>/dev/null || mkdir -p "$ACTIVE_REPO"
+else
+    # ================= Interactive mode (legacy) =================
+    # ================= Select Models =================
+    echo -e "${BLUE}[INFO]${NC} Checking available models in '$ORIGINAL_MODEL_REPO'...${NC}"
 
-mapfile -t models < <(ls -1 "$ORIGINAL_MODEL_REPO")
+    mapfile -t models < <(ls -1 "$ORIGINAL_MODEL_REPO")
 
-if [ ${#models[@]} -eq 0 ]; then
-    echo -e "${BLUE}[INFO]${NC} No models found in '$ORIGINAL_MODEL_REPO'. Nothing to start.${NC}"
-    exit 0
-fi
-
-for i in "${!models[@]}"; do
-    echo "  $((i+1))) ${models[$i]}"
-done
-
-echo -e "${BLUE}[INFO]${NC} Enter model numbers to start (space separated):${NC}"
-read -r -p "> " selection
-selected=()
-
-for num in $selection; do
-    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#models[@]}" ]; then
-        selected+=("${models[$((num-1))]}")
-    else
-        echo -e "${YELLOW}[WARN]${NC} Invalid input '$num' ignored.${NC}"
+    if [ ${#models[@]} -eq 0 ]; then
+        echo -e "${BLUE}[INFO]${NC} No models found in '$ORIGINAL_MODEL_REPO'. Nothing to start.${NC}"
+        exit 0
     fi
-done
 
-if [ ${#selected[@]} -eq 0 ]; then
-    echo -e "${RED}[FAIL]${NC} No valid models selected, aborting.${NC}"
-    exit 1
-fi
+    for i in "${!models[@]}"; do
+        echo "  $((i+1))) ${models[$i]}"
+    done
 
-# ================= Prepare Repo =================
-echo -e "${BLUE}[INFO]${NC} Preparing model repository...${NC}"
-rm -rf "$ACTIVE_REPO"
-mkdir -p "$ACTIVE_REPO"
+    echo -e "${BLUE}[INFO]${NC} Enter model numbers to start (space separated):${NC}"
+    read -r -p "> " selection
+    selected=()
 
-TOTAL_SIZE=0
-for model in "${selected[@]}"; do
-    MODEL_PATH="$ORIGINAL_MODEL_REPO/$model"
-    if [ -d "$MODEL_PATH" ]; then
-        cp -al "$MODEL_PATH" "$ACTIVE_REPO/" 2>/dev/null || cp -r "$MODEL_PATH" "$ACTIVE_REPO/"
-        SIZE=$(du -sh "$MODEL_PATH" | awk '{print $1}')
-        TOTAL_SIZE=$((TOTAL_SIZE + $(du -sb "$MODEL_PATH" | awk '{print $1}')))
-        echo -e "${GREEN}[PASS]${NC} Copied $model | size: $SIZE${NC}"
-    else
-        echo -e "${RED}[FAIL]${NC} Model not found: $model${NC}"
+    for num in $selection; do
+        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#models[@]}" ]; then
+            selected+=("${models[$((num-1))]}")
+        else
+            echo -e "${YELLOW}[WARN]${NC} Invalid input '$num' ignored.${NC}"
+        fi
+    done
+
+    if [ ${#selected[@]} -eq 0 ]; then
+        echo -e "${RED}[FAIL]${NC} No valid models selected, aborting.${NC}"
+        exit 1
     fi
-done
 
-NUM_MODELS=$(ls -1 "$ACTIVE_REPO" | wc -l)
-echo -e "${BLUE}[INFO]${NC} Total models: $NUM_MODELS | Approx total size: $(numfmt --to=iec $TOTAL_SIZE)${NC}"
+    # ================= Prepare Repo =================
+    echo -e "${BLUE}[INFO]${NC} Preparing model repository...${NC}"
+    rm -rf "$ACTIVE_REPO"
+    mkdir -p "$ACTIVE_REPO"
+
+    TOTAL_SIZE=0
+    for model in "${selected[@]}"; do
+        MODEL_PATH="$ORIGINAL_MODEL_REPO/$model"
+        if [ -d "$MODEL_PATH" ]; then
+            cp -al "$MODEL_PATH" "$ACTIVE_REPO/" 2>/dev/null || cp -r "$MODEL_PATH" "$ACTIVE_REPO/"
+            SIZE=$(du -sh "$MODEL_PATH" | awk '{print $1}')
+            TOTAL_SIZE=$((TOTAL_SIZE + $(du -sb "$MODEL_PATH" | awk '{print $1}')))
+            echo -e "${GREEN}[PASS]${NC} Copied $model | size: $SIZE${NC}"
+        else
+            echo -e "${RED}[FAIL]${NC} Model not found: $model${NC}"
+        fi
+    done
+
+    NUM_MODELS=$(ls -1 "$ACTIVE_REPO" | wc -l)
+    echo -e "${BLUE}[INFO]${NC} Total models: $NUM_MODELS | Approx total size: $(numfmt --to=iec $TOTAL_SIZE)${NC}"
+fi
 
 # ================= Start Container =================
 echo -e "${BLUE}[INFO]${NC} Starting Triton Server...${NC}"
 START_TIME=$(date +%s)
 
 docker rm -f ${CONTAINER_NAME} 2>/dev/null
+
+TRITON_EXTRA_ARGS=""
+if $EXPLICIT_MODE; then
+    TRITON_EXTRA_ARGS="--model-control-mode=explicit"
+fi
 
 docker run -d \
     --name ${CONTAINER_NAME} \
@@ -98,7 +121,8 @@ docker run -d \
     ${IMAGE_NAME} \
     tritonserver \
     --model-repository=/models \
-    --strict-model-config=false
+    --strict-model-config=false \
+    ${TRITON_EXTRA_ARGS}
 
 # ================= Wait Ready =================
 echo -e "${BLUE}[INFO]${NC} Waiting for Triton to be ready...${NC}"
