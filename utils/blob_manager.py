@@ -1,4 +1,4 @@
-import os, sys, time, glob, re, io
+import os, sys, time, glob, re, io, json, argparse
 from typing import List
 from pathlib import Path
 
@@ -10,6 +10,20 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 # ENVIRONMENT VARIABLES
 RETAIL_MLMODELS_CONNECTION_STRING = os.getenv("RETAIL_MLMODELS_CONNECTION_STRING")
 RETAIL_PMS_CONNECTION_STRING = os.getenv("RETAIL_PMS_CONNECTION_STRING")
+
+
+def _get_common_dir_prefix(blob_names: List[str]) -> str:
+    if not blob_names:
+        raise ValueError("blob_names is empty")
+
+    common_prefix = os.path.commonprefix(blob_names)
+    if common_prefix.endswith("/"):
+        return common_prefix
+
+    if "/" not in common_prefix:
+        return ""
+
+    return common_prefix.rsplit("/", 1)[0] + "/"
 
 
 class BlobManager:
@@ -78,69 +92,88 @@ class BlobManager:
         
         return []
 
-    def get_model_path(self, model_type:str, key_strings: List[str], container_name="ai-tool-models") -> List[str]:
+
+    def download_model_folder(
+        self,
+        model_type: str,
+        key_strings: List[str],
+        local_dir: str,
+        container_name="ai-tool-models"
+    ) -> str:
         if model_type not in ["Object_Detection", "Classification", "Segmentation", "Unit_Sku_Detection"]:
-            raise ValueError("model_type must be one of Object_Detection, Classification, Segmentation, Unit_Sku_Detection")
+            raise ValueError("invalid model_type")
 
         container_client = self.blob_client.get_container_client(container_name)
         base_prefix = f"{model_type}/"
 
-        # List all files under the model type path once, then filter in-memory.
-        all_blob_names = [blob.name for blob in container_client.list_blobs(name_starts_with=base_prefix)]
-        if not all_blob_names:
-            return []
+        # 1. 单次扫描找匹配项，避免缓存整个 model_type 下的所有 blob
+        has_blobs = False
+        matched_blob_names = []
+        for blob in container_client.list_blobs(name_starts_with=base_prefix):
+            has_blobs = True
+            if all(key in blob.name for key in key_strings):
+                matched_blob_names.append(blob.name)
 
-        # Match blobs that contain all key strings to locate the concrete model folder.
-        matched_blob_names = [
-            name for name in all_blob_names
-            if all(key in name for key in key_strings)
-        ]
+        if not has_blobs:
+            raise ValueError("No blobs found")
+
+        # 2. 找匹配的 blobs
         if not matched_blob_names:
-            return []
+            raise ValueError("No matched model found")
 
-        matched_prefixes = sorted(
-            {
-                name.rsplit("/", 1)[0] + "/"
-                for name in matched_blob_names
-                if "/" in name
-            },
-            key=len,
-            reverse=True,
-        )
-        if not matched_prefixes:
-            return []
+        # 3. 找公共父目录，确保同级目录（如 model/ 与 labelmap/）都会被下载
+        target_prefix = _get_common_dir_prefix(matched_blob_names)
+        if not target_prefix:
+            raise ValueError("Failed to resolve model folder")
 
-        target_prefix = matched_prefixes[0]
-        return [
-            f"https://mlplatform.blob.core.chinacloudapi.cn/{container_name}/{name}"
-            for name in all_blob_names
-            if name.startswith(target_prefix) and not name.endswith("/")
-        ]
+        # 4. 下载整个 folder
+        download_root = os.path.join(local_dir, target_prefix)
+        os.makedirs(download_root, exist_ok=True)
 
-    def download_model(self,
-        model_type:str,
-        key_strings: List[str],
-        target_folder: str = "./downloaded_models",
-        container_name="ai-tool-models"
-    ):
-        target_folder = os.path.abspath(target_folder)
-        os.makedirs(target_folder, exist_ok=True)
+        for blob in container_client.list_blobs(name_starts_with=target_prefix):
+            blob_name = blob.name
+            if blob_name.endswith("/"):
+                continue
 
-        model_urls = self.get_model_path(model_type, key_strings, container_name)
-        if not model_urls:
-            return []
+            # 本地路径（保持目录结构）
+            relative_path = blob_name[len(target_prefix):]
+            local_path = os.path.join(download_root, relative_path)
 
-        local_files = []
-        for url in model_urls:
-            blob_name = url.split(f"{container_name}/")[1]
-            dst_file = os.path.join(target_folder, blob_name.split("/")[-1])
-            self.download_blob(container_name, blob_name, dst_file)
-            local_files.append(dst_file)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-        return local_files
+            blob_client = container_client.get_blob_client(blob_name)
+
+            with open(local_path, "wb") as f:
+                stream = blob_client.download_blob()
+                f.write(stream.readall())
+
+        return download_root
+
+    # def download_model(self,
+    #     model_type:str,
+    #     key_strings: List[str],
+    #     target_folder: str = "./downloaded_models",
+    #     container_name="ai-tool-models"
+    # ):
+    #     target_folder = os.path.abspath(target_folder)
+    #     os.makedirs(target_folder, exist_ok=True)
+
+    #     model_urls = self.get_model_path(model_type, key_strings, container_name)
+    #     if not model_urls:
+    #         return []
+
+    #     local_files = []
+    #     for url in model_urls:
+    #         blob_name = url.split(f"{container_name}/")[1]
+    #         dst_file = os.path.join(target_folder, blob_name.split("/")[-1])
+    #         self.download_blob(container_name, blob_name, dst_file)
+    #         local_files.append(dst_file)
+
+    #     return local_files
 
 
-def test_blob_manager(
+# def test_blob_manager(
+def download_and_prepare_model(
         model_type="Object_Detection",
         model_name="CCTH-Unit",
         timestamp="20260317083337",
@@ -150,31 +183,22 @@ def test_blob_manager(
     config_path = blob_manager.get_config_path([model_name, timestamp])
     print("config_path:", config_path)
 
-    model_files = blob_manager.get_model_path(model_type, [model_name, timestamp])
+    model_files = blob_manager.download_model_folder(model_type, [model_name, timestamp], target_folder)
     print("model_files:", model_files)
-
-    downloaded_files = blob_manager.download_model(
-        model_type,
-        [model_name, timestamp],
-        target_folder=f"{target_folder}/{model_name}_{timestamp}",
-    )
-    print("downloaded_files:", downloaded_files)
-    # ready to run 
-    print(f"""
-        python utils/generate_unit_triton.py {target_folder}/{model_name}_{timestamp} trt_models \\
-        --model-name {model_name} \\
-        --onnx-model-name _{model_name} \\
-        --postprocess-model-name unit_postprocess
-
-        bash scripts/start_triton.sh trt_models/
-    """)
-
 
 
 if __name__ == '__main__':
-    test_blob_manager(
-        model_type="Object_Detection",
-        model_name="CCTH-Unit",
-        timestamp="20260317083337",
-        target_folder="./test_models",
+
+    parser = argparse.ArgumentParser(description="Download model from Azure Blob Storage and prepare for Triton")
+    parser.add_argument("--model-type", type=str, default="Object_Detection", help="Type of the model to download (e.g. Object_Detection, Classification, Segmentation, Unit_Sku_Detection)")
+    parser.add_argument("--model-name", type=str, default="CCTH-Unit", help="Name of the model to download")
+    parser.add_argument("--timestamp", type=str, default="20260317083337", help="Timestamp to identify the model version")
+    parser.add_argument("--target-folder", type=str, default="./downloaded_models", help="Local folder to save the downloaded model")
+    args = parser.parse_args()
+
+    download_and_prepare_model(
+        model_type=args.model_type,
+        model_name=args.model_name,
+        timestamp=args.timestamp,
+        target_folder=args.target_folder,
     )
