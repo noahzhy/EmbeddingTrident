@@ -61,7 +61,7 @@ ONNX_TO_TRITON_DTYPE: Dict[int, str] = {
 
 # /home/haoyu/projects/ray_data/utils/unit_det/unit_postprocess.py
 DEFAULT_POSTPROCESS_MODEL_PY = open(
-    Path(__file__).parent / "unit" / "unit_postprocess.py",
+    Path(__file__).parent / "unit_postprocess.py",
     "r",
     encoding="utf-8",
 ).read()
@@ -639,6 +639,6 @@ if __name__ == "__main__":
 
 # Example:
 # python utils/generate_unit_triton.py data/models/20260317083337 trt_models \
-#   --model-name unit_ensemble \
-#   --onnx-model-name CCTH-Unit \
+#   --model-name CCTH-Unit \
+#   --onnx-model-name _CCTH-Unit \
 #   --postprocess-model-name unit_postprocess

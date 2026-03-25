@@ -1,4 +1,5 @@
 import base64
+import hashlib
 from typing import Any, Dict, List, Tuple
 
 import cv2
@@ -19,7 +20,7 @@ class VisualNode:
         "sku_results",
     ]
 
-    def __init__(self, top_k: int = 5):
+    def __init__(self, top_k: int = 1):
         self.top_k = top_k
 
     @staticmethod
@@ -75,7 +76,7 @@ class VisualNode:
         return x1_i, y1_i, x2_i, y2_i
 
     @staticmethod
-    def _color_by_index(idx: int) -> Tuple[int, int, int]:
+    def _color_by_label(label_key: str) -> Tuple[int, int, int]:
         palette = [
             (37, 99, 235),
             (5, 150, 105),
@@ -86,6 +87,8 @@ class VisualNode:
             (202, 138, 4),
             (236, 72, 153),
         ]
+        digest = hashlib.md5(label_key.encode("utf-8")).hexdigest()
+        idx = int(digest[:8], 16)
         return palette[idx % len(palette)]
 
     @staticmethod
@@ -114,7 +117,7 @@ class VisualNode:
 
     def _render_unit_sku(self, image: np.ndarray, items: List[Dict[str, Any]]) -> None:
         h, w = image.shape[:2]
-        for idx, item in enumerate(items):
+        for item in items:
             if not isinstance(item, dict):
                 continue
             bbox = item.get("bbox")
@@ -122,8 +125,8 @@ class VisualNode:
                 continue
 
             x1, y1, x2, y2 = self._to_pixel_bbox(list(bbox), w, h)
-            color = self._color_by_index(idx)
             label = str(item.get("sku_label", "unknown"))
+            color = self._color_by_label(label)
             score = float(item.get("sku_score", item.get("score", 0.0)))
             text = f"{label} {score:.3f}"
 
@@ -132,7 +135,7 @@ class VisualNode:
 
     def _render_unit(self, image: np.ndarray, items: List[Dict[str, Any]]) -> None:
         h, w = image.shape[:2]
-        for idx, item in enumerate(items):
+        for item in items:
             if not isinstance(item, dict):
                 continue
             bbox = item.get("bbox")
@@ -140,8 +143,8 @@ class VisualNode:
                 continue
 
             x1, y1, x2, y2 = self._to_pixel_bbox(list(bbox), w, h)
-            color = self._color_by_index(idx)
             class_id = item.get("class_id", -1)
+            color = self._color_by_label(f"class:{class_id}")
             score = float(item.get("score", 0.0))
             text = f"class:{class_id} {score:.3f}"
 
@@ -162,7 +165,8 @@ class VisualNode:
 
         x, y = 10, 24
         for i, line in enumerate(lines):
-            color = self._color_by_index(i)
+            label_key = line.split(":", 1)[0].strip()
+            color = self._color_by_label(label_key)
             self._draw_label(image, line, x, y + i * 24, color)
 
     def render(self, image: np.ndarray, parsed: Dict[str, Any]) -> np.ndarray:

@@ -15,6 +15,18 @@ from ray.serve.handle import DeploymentHandle
 class VisualPipeline:
     """Ray Serve visualization pipeline for structured inference output."""
 
+    APP_PIPELINE_MAP = {
+        # Deployment names are defined in main.py via ModelInferPipeline.options(name=...).
+        "unit":     {"pipeline": "unit",       "pipeline_app": "unit"},
+        "sku":      {"pipeline": "unit_sku",   "pipeline_app": "unit_sku"},
+        "unit_sku": {"pipeline": "unit_sku",   "pipeline_app": "unit_sku"},
+    }
+
+    LEGACY_PIPELINE_ALIAS = {
+        "unit_pipeline": "unit",
+        "unit_sku_pipeline": "unit_sku",
+    }
+
     def __init__(self, visual_node: DeploymentHandle, request_timeout_s: int = 10):
         self.visual_node = visual_node
         self.request_timeout_s = request_timeout_s
@@ -57,7 +69,7 @@ class VisualPipeline:
         candidate_apps = []
         if pipeline_app:
             candidate_apps.append(pipeline_app)
-        candidate_apps.extend(["unit_sku_app", "default", ""])
+        candidate_apps.extend(["unit_sku", "unit_sku_app", "default", ""])
 
         last_error: Optional[Exception] = None
         for app_name in candidate_apps:
@@ -91,13 +103,28 @@ class VisualPipeline:
             data = await request.json()
 
         image_url = data.get("image_url")
+        app_name = str(data.get("app", "")).strip()
         pipeline_name = data.get("pipeline")
         pipeline_app = str(data.get("pipeline_app", "")).strip()
+
+        if pipeline_name:
+            pipeline_name = self.LEGACY_PIPELINE_ALIAS.get(str(pipeline_name), str(pipeline_name))
+
+        # Prefer app-based routing so clients only need to pass one intuitive field.
+        if app_name:
+            app_config = self.APP_PIPELINE_MAP.get(app_name)
+            if not app_config:
+                return {
+                    "error": f"Unsupported app: {app_name}",
+                    "supported_apps": sorted(self.APP_PIPELINE_MAP.keys()),
+                }
+            pipeline_name = app_config["pipeline"]
+            pipeline_app = app_config["pipeline_app"]
 
         if not image_url:
             return {"error": "Missing image_url"}
         if not pipeline_name:
-            return {"error": "Missing pipeline"}
+            return {"error": "Missing app"}
 
         try:
             image = await self._load_image(image_url)
@@ -109,6 +136,7 @@ class VisualPipeline:
             )
             vis = await self.visual_node.remote(image, result)
             return {
+                "app": app_name,
                 "pipeline": pipeline_name,
                 "pipeline_app": pipeline_app,
                 "image_base64": vis.get("image_base64", ""),
@@ -118,6 +146,7 @@ class VisualPipeline:
         except Exception as exc:
             return {
                 "error": str(exc),
+                "app": app_name,
                 "pipeline": pipeline_name,
                 "image_url": image_url,
             }

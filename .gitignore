@@ -3,6 +3,8 @@ uploads/
 .*/
 *.log
 trt_models/
+!trt_models/unit_ensemble
+!trt_models/unit_postprocess
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

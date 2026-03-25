@@ -60,6 +60,23 @@ class ModelInferPipeline:
                 
         return clean_results
 
+    @staticmethod
+    def _strip_internal_buffers(payload: Any) -> Any:
+        # Keep internal tensors for DAG chaining, but never expose them in HTTP JSON responses.
+        def _clean(value: Any) -> Any:
+            if isinstance(value, dict):
+                cleaned: Dict[str, Any] = {}
+                for key, item in value.items():
+                    if key in {"raw_image", "image"}:
+                        continue
+                    cleaned[key] = _clean(item)
+                return cleaned
+            if isinstance(value, list):
+                return [_clean(item) for item in value]
+            return value
+
+        return _clean(payload)
+
     async def __call__(self, request: Any) -> Dict:
         if isinstance(request, str):
             return await self._infer_one_url(request)
@@ -79,7 +96,7 @@ class ModelInferPipeline:
 
             try:
                 results = await self._run_urls_with_pipelining(image_urls)
-                return {"results": results}
+                return {"results": self._strip_internal_buffers(results)}
             except Exception as exc:
                 return {"error": str(exc)}
 
@@ -89,7 +106,7 @@ class ModelInferPipeline:
 
         try:
             results = await self._run_urls_with_pipelining([image_url])
-            return {"results": results}
+            return {"results": self._strip_internal_buffers(results)}
         except Exception as exc:
             return {"error": str(exc)}
 
