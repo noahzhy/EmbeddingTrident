@@ -1,9 +1,15 @@
 
-from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
+from pymilvus import (
+    connections, Collection, FieldSchema,
+    CollectionSchema, DataType, utility,
+)
 
 
 def create_collection_no_index(config):
-    connections.connect(host=config["MILVUS_HOST"], port=config["MILVUS_PORT"])
+    connections.connect(
+        host=config["MILVUS_HOST"],
+        port=config["MILVUS_PORT"],
+    )
     collection_name = config["COLLECTION_NAME"]
 
     if utility.has_collection(collection_name):
@@ -19,18 +25,18 @@ def create_collection_no_index(config):
         "BINARY_VECTOR":    DataType.BINARY_VECTOR,
         "VARCHAR":          DataType.VARCHAR,
     }
-
+    
     fields = []
     for field in config["COLLECTION_FIELDS"]:
         field_name = field.get("name")
         field_type = field.get("type")
         if not field_name or not field_type:
             continue
-
+        
         dtype = type_map.get(field_type)
         if dtype is None:
             raise ValueError(f"Unsupported field type: {field_type}")
-
+        
         if field_type in ("FLOAT_VECTOR", "BINARY_VECTOR"):
             dim = field.get("dim") or config["COLLECTION_VECTOR_DIM"]
             fields.append(
@@ -49,13 +55,16 @@ def create_collection_no_index(config):
                     auto_id=bool(field.get("auto_id", False)),
                 )
             )
-
+    
     schema = CollectionSchema(fields)
     return Collection(collection_name, schema)
 
 
-def build_index_and_load(config):
-    connections.connect(host=config["MILVUS_HOST"], port=config["MILVUS_PORT"])
+def build_index_then_load(config):
+    connections.connect(
+        host=config["MILVUS_HOST"],
+        port=config["MILVUS_PORT"],
+    )
     collection = Collection(config["COLLECTION_NAME"])
 
     index_field = config.get("COLLECTION_INDEX_FIELD")
@@ -72,15 +81,25 @@ def build_index_and_load(config):
     return collection
 
 
-class MilvusInserter:
-    def __init__(self, host, port, collection_name, auto_id):
+class MilvusNode:
+    def __init__(self, host, port, collection_name, auto_id=True):
         connections.connect(host=host, port=port)
         self.collection = Collection(collection_name)
         self.auto_id = bool(auto_id)
-
+        # load if not already loaded
+        if not self.collection.is_loaded:
+            self.collection.load()
+    
     def insert(self, ids, vectors):
         if self.auto_id:
             self.collection.insert([vectors.tolist()])
         else:
             self.collection.insert([ids, vectors.tolist()])
-
+    
+    def search(self, query_vectors, top_k, search_params):
+        return self.collection.search(
+            data=query_vectors.tolist(),
+            anns_field=self.collection.schema.fields[1].name,
+            param=search_params,
+            limit=top_k,
+        )
