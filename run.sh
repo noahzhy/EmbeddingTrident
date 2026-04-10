@@ -92,3 +92,6 @@ else
     export PIPELINE_AUTO_CONFIG=0
     python3 src/main.py
 fi
+
+# run in background
+# nohup bash run.sh > pipeline.log 2>&1 &

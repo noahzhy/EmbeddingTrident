@@ -63,6 +63,11 @@ curl -X POST http://localhost:2866/unit_sku \
   -H "Content-Type: application/json" \
   -d '{"image_url": "data/images/unit_test.jpg"}'
 
+# 目标检测 + SKU 分类
+curl -X POST http://localhost:2866/unit_sku \
+  -H "Content-Type: application/json" \
+  -d '{"image_url": "https://fileman.clobotics.cn/api/file/06fd63f536e809ae12d6437a7cb524d7"}'
+
 # 批量推理
 curl -X POST http://localhost:2866/unit \
   -H "Content-Type: application/json" \
